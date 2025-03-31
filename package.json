@@ -1,0 +1,28 @@
+{
+  "name": "obsidian-book-card-creator",
+  "version": "1.0.0",
+  "description": "Amazonの本のURLから情報を取得してノートを作成するプラグイン",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "rollup --config rollup.config.js -w",
+    "build": "rollup --config rollup.config.js"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "book",
+    "amazon"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "obsidian": "latest",
+    "typescript": "latest",
+    "@rollup/plugin-commonjs": "latest",
+    "@rollup/plugin-node-resolve": "latest",
+    "@rollup/plugin-typescript": "latest",
+    "rollup": "latest",
+    "tslib": "latest"
+  }
+}
