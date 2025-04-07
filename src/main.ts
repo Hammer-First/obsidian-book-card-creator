@@ -151,15 +151,40 @@ export default class BookCardCreator extends Plugin {
 			const summaryMatch = htmlContent.match(/<div id="bookDescription_feature_div"[^>]*>([\s\S]*?)<\/div>/) || 
 				htmlContent.match(/<div id="productDescription"[^>]*>([\s\S]*?)<\/div>/);
 			
-			// ジャンル情報を取得（カテゴリから推測）
-			const genreMatch = htmlContent.match(/<a class="a-link-normal a-color-tertiary"[^>]*>([^<]+)<\/a>/) || 
-				htmlContent.match(/id="wayfinding-breadcrumbs_feature_div"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/);
+			// ジャンル情報を取得（カテゴリ階層から詳細なジャンルを抽出）
+			let genre = 'Fiction'; // デフォルトのジャンル
+			
+			// パンくずリストからカテゴリ階層を取得
+			const breadcrumbsMatch = htmlContent.match(/id="wayfinding-breadcrumbs_feature_div"[^>]*>([\s\S]*?)<\/div>/);
+			if (breadcrumbsMatch) {
+				const breadcrumbs = breadcrumbsMatch[1];
+				// すべてのリンクテキストを抽出
+				const categoryLinks = breadcrumbs.match(/<a[^>]*>([^<]+)<\/a>/g);
+				
+				if (categoryLinks && categoryLinks.length > 0) {
+					// 最も具体的なカテゴリを取得するために、最後から2番目のカテゴリを使用
+					// (最後はよく「Kindle Store」になるため)
+					const targetIndex = Math.max(0, categoryLinks.length - 2);
+					const targetCategory = categoryLinks[targetIndex].match(/<a[^>]*>([^<]+)<\/a>/);
+					if (targetCategory) {
+						genre = targetCategory[1].trim();
+					}
+				}
+			}
+			
+			// 他の方法でもジャンル情報を探す
+			if (genre === 'Fiction' || genre === 'Kindle Store') {
+				const genreMatch = htmlContent.match(/<a class="a-link-normal a-color-tertiary"[^>]*>([^<]+)<\/a>/);
+				if (genreMatch && genreMatch[1].trim() !== 'Kindle Store') {
+					genre = genreMatch[1].trim();
+				}
+			}
 			
 			// データを整形して返す
 			return {
 				title: titleMatch ? titleMatch[1].trim() : 'Unknown Title',
 				author: authorMatch ? authorMatch[1].trim() : 'Unknown Author',
-				genre: genreMatch ? genreMatch[1].trim() : 'Fiction',
+				genre: genre,
 				summary: summaryMatch ? this.cleanHtml(summaryMatch[1]).trim() : 'No summary available.',
 				amazonUrl: amazonUrl // Amazon URLを保存
 			};
