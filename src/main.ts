@@ -85,22 +85,90 @@ export default class BookCardCreator extends Plugin {
 	}
 
 	async fetchBookInfo(amazonUrl: string): Promise<BookInfo> {
-		// 実際の実装ではAmazonのサイトからスクレイピングするか
-		// APIを使用する必要がありますが、ここではダミーデータを返します
-		// 注: Amazonのスクレイピングは利用規約に違反する可能性があるため、
-		// 実際の実装ではAmazonのProduct Advertising APIなどの公式APIを使用することを推奨します
-
-		// 簡易的なURLのバリデーション
+		// URLのバリデーション
 		if (!amazonUrl.includes('amazon')) {
 			throw new Error('Invalid Amazon URL');
 		}
 
-		return {
-			title: 'Example Book Title',
-			author: 'Example Author',
-			genre: 'Fiction',
-			summary: 'This is an example book summary. In a real implementation, this would be fetched from Amazon.'
-		};
+		try {
+			// CORSの問題を回避するためにプロキシサービスを使用
+			// 複数のプロキシオプションを用意
+			const proxyUrls = [
+				`https://api.allorigins.win/get?url=${encodeURIComponent(amazonUrl)}`,
+				`https://corsproxy.io/?${encodeURIComponent(amazonUrl)}`,
+				`https://cors-anywhere.herokuapp.com/${amazonUrl}`
+			];
+			
+			let htmlContent = '';
+			let proxyError = '';
+			
+			// プロキシを順番に試す
+			for (const proxyUrl of proxyUrls) {
+				try {
+					const response = await fetch(proxyUrl);
+					
+					if (!response.ok) {
+						proxyError = `Failed to fetch data: ${response.status}`;
+						continue;
+					}
+					
+					// レスポンスタイプを確認
+					const contentType = response.headers.get('content-type');
+					
+					if (contentType && contentType.includes('application/json')) {
+						// JSONレスポンスの場合
+						const responseData = await response.json();
+						if (responseData.contents) {
+							// allorigins形式のレスポンス
+							htmlContent = responseData.contents;
+						}
+					} else {
+						// テキスト/HTMLレスポンスの場合
+						htmlContent = await response.text();
+					}
+					
+					// 成功したらループを抜ける
+					if (htmlContent) break;
+					
+				} catch (err) {
+					proxyError = `Proxy error: ${err.message}`;
+					continue;
+				}
+			}
+			
+			if (!htmlContent) {
+				throw new Error(`Failed to fetch Amazon data: ${proxyError}`);
+			}
+			
+			// HTMLからメタデータを抽出
+			const titleMatch = htmlContent.match(/<span id="productTitle"[^>]*>([^<]+)<\/span>/);
+			const authorMatch = htmlContent.match(/<a class="[^"]*" href="[^"]*\/e\/[^"]*">([^<]+)<\/a>/) || 
+				htmlContent.match(/id="bylineInfo"[^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/);
+			
+			// 商品説明を取得 (複数のパターンに対応)
+			const summaryMatch = htmlContent.match(/<div id="bookDescription_feature_div"[^>]*>([\s\S]*?)<\/div>/) || 
+				htmlContent.match(/<div id="productDescription"[^>]*>([\s\S]*?)<\/div>/);
+			
+			// ジャンル情報を取得（カテゴリから推測）
+			const genreMatch = htmlContent.match(/<a class="a-link-normal a-color-tertiary"[^>]*>([^<]+)<\/a>/) || 
+				htmlContent.match(/id="wayfinding-breadcrumbs_feature_div"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/);
+			
+			// データを整形して返す
+			return {
+				title: titleMatch ? titleMatch[1].trim() : 'Unknown Title',
+				author: authorMatch ? authorMatch[1].trim() : 'Unknown Author',
+				genre: genreMatch ? genreMatch[1].trim() : 'Fiction',
+				summary: summaryMatch ? this.cleanHtml(summaryMatch[1]).trim() : 'No summary available.'
+			};
+		} catch (error) {
+			console.error('Error fetching book information:', error);
+			throw new Error('Failed to fetch book information. Please check the URL and try again.');
+		}
+	}
+	
+	// HTMLタグを除去するヘルパーメソッド
+	private cleanHtml(html: string): string {
+		return html.replace(/<[^>]*>/g, ' ').replace(/\s{2,}/g, ' ');
 	}
 }
 

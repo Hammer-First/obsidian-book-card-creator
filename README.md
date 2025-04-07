@@ -67,13 +67,16 @@ Obsidian Book Card Creatorは、AmazonのURL から本の情報を取得し、�
 
 ## 注意事項
 
-このプラグインは現在、デモンストレーション目的でダミーデータを返します。実際のAmazon Web Services Product Advertising API やその他の公式APIを使用して拡張することができます。
+このプラグインはAmazonのウェブサイトからデータを取得します。Amazon APIではなくウェブページからのデータ取得のため、Amazon側の仕様変更によって正常に動作しなくなる可能性があります。その場合は、更新されたバージョンをお待ちください。
+
+プラグインの使用にはインターネット接続が必要です。また、CORSの問題を回避するためにサードパーティのプロキシサービスを使用しています。
 
 ## 今後の機能
 
-- 実際のAmazon APIとの連携
+- Amazon Web Services Product Advertising API への対応
 - 表紙画像の取得と埋め込み
 - 複数の書店URLのサポート
+- より高度なメタデータの取得（ページ数、出版日、ISBN等）
 
 ## ライセンス
 
