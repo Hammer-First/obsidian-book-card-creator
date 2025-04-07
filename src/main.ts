@@ -1,15 +1,19 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, TFile } from 'obsidian';
 
 interface BookCardCreatorSettings {
-	templatePath: string;
-	outputFolder: string;
+	bookTemplatePath: string;
+	bookOutputFolder: string;
+	blogTemplatePath: string;
+	blogOutputFolder: string;
 	anthropicApiKey: string;
 	llmModel: string;
 }
 
 const DEFAULT_SETTINGS: BookCardCreatorSettings = {
-	templatePath: '',
-	outputFolder: '',
+	bookTemplatePath: '',
+	bookOutputFolder: '',
+	blogTemplatePath: '',
+	blogOutputFolder: '',
 	anthropicApiKey: '',
 	llmModel: 'claude-3-haiku-20240307'
 }
@@ -54,15 +58,29 @@ export default class BookCardCreator extends Plugin {
 	}
 
 	async createNoteFromTemplate(bookInfo: BookInfo | BlogInfo) {
+		let templatePath = '';
+		let outputFolderPath = '';
+		
+		// BookInfoかBlogInfoかを判定してテンプレートと出力フォルダを選択
+		if ('amazonUrl' in bookInfo) {
+			// BookInfoの場合
+			templatePath = this.settings.bookTemplatePath;
+			outputFolderPath = this.settings.bookOutputFolder;
+		} else if ('blogUrl' in bookInfo) {
+			// BlogInfoの場合
+			templatePath = this.settings.blogTemplatePath;
+			outputFolderPath = this.settings.blogOutputFolder;
+		}
+		
 		// テンプレートファイルが存在するか確認
-		const templateFile = this.app.vault.getAbstractFileByPath(this.settings.templatePath);
+		const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
 		if (!(templateFile instanceof TFile)) {
 			new Notice('Template file not found. Please check your settings.');
 			return;
 		}
 
 		// 出力フォルダが存在するか確認
-		const outputFolder = this.app.vault.getAbstractFileByPath(this.settings.outputFolder);
+		const outputFolder = this.app.vault.getAbstractFileByPath(outputFolderPath);
 		if (!(outputFolder instanceof TFolder)) {
 			new Notice('Output folder not found. Please check your settings.');
 			return;
@@ -74,7 +92,7 @@ export default class BookCardCreator extends Plugin {
 		// テンプレートの内容を置換
 		let newContent = templateContent;
 		
-		// BookInfoかBlogInfoかを判定
+		// BookInfoかBlogInfoかを判定して適切な置換を行う
 		if ('amazonUrl' in bookInfo) {
 			// BookInfoの場合
 			const book = bookInfo as BookInfo;
@@ -95,7 +113,7 @@ export default class BookCardCreator extends Plugin {
 
 		// ファイル名（タイトルから不正な文字を除去）
 		const fileName = `${'title' in bookInfo ? bookInfo.title.replace(/[\\/:*?"<>|]/g, '') : 'blog'}.md`;
-		const filePath = `${this.settings.outputFolder}/${fileName}`;
+		const filePath = `${outputFolderPath}/${fileName}`;
 
 		// 新しいノートを作成
 		try {
@@ -492,15 +510,18 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'Book Card Creator Settings' });
 
-		// テンプレートファイルの設定
+		// Amazon Book Cardsのセクション
+		containerEl.createEl('h3', { text: 'Amazon Book Cards' });
+
+		// 書籍用テンプレートファイルの設定
 		new Setting(containerEl)
-			.setName('Template file')
-			.setDesc('Select the template file for book cards')
+			.setName('Book template file')
+			.setDesc('Select the template file for Amazon book cards')
 			.addText(text => text
 				.setPlaceholder('Example: templates/book-template.md')
-				.setValue(this.plugin.settings.templatePath)
+				.setValue(this.plugin.settings.bookTemplatePath)
 				.onChange(async (value) => {
-					this.plugin.settings.templatePath = value;
+					this.plugin.settings.bookTemplatePath = value;
 					await this.plugin.saveSettings();
 				})
 			)
@@ -509,22 +530,22 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 				.onClick(async () => {
 					// 既存のファイルを選択するための新しいモーダルを作成
 					new FileSelectorModal(this.app, (file) => {
-						this.plugin.settings.templatePath = file.path;
+						this.plugin.settings.bookTemplatePath = file.path;
 						this.plugin.saveSettings();
 						this.display(); // 設定画面を更新
 					}).open();
 				})
 			);
 
-		// 出力フォルダの設定
+		// 書籍用出力フォルダの設定
 		new Setting(containerEl)
-			.setName('Output folder')
-			.setDesc('Select the folder where book cards will be created')
+			.setName('Book output folder')
+			.setDesc('Select the folder where Amazon book cards will be created')
 			.addText(text => text
 				.setPlaceholder('Example: Books')
-				.setValue(this.plugin.settings.outputFolder)
+				.setValue(this.plugin.settings.bookOutputFolder)
 				.onChange(async (value) => {
-					this.plugin.settings.outputFolder = value;
+					this.plugin.settings.bookOutputFolder = value;
 					await this.plugin.saveSettings();
 				})
 			)
@@ -533,12 +554,66 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 				.onClick(async () => {
 					// フォルダを選択するための新しいモーダルを作成
 					new FolderSelectorModal(this.app, (folder) => {
-						this.plugin.settings.outputFolder = folder.path;
+						this.plugin.settings.bookOutputFolder = folder.path;
 						this.plugin.saveSettings();
 						this.display(); // 設定画面を更新
 					}).open();
 				})
 			);
+
+		// Tech Blog Cardsのセクション
+		containerEl.createEl('h3', { text: 'Tech Blog Cards' });
+
+		// ブログ用テンプレートファイルの設定
+		new Setting(containerEl)
+			.setName('Blog template file')
+			.setDesc('Select the template file for tech blog cards')
+			.addText(text => text
+				.setPlaceholder('Example: templates/blog-template.md')
+				.setValue(this.plugin.settings.blogTemplatePath)
+				.onChange(async (value) => {
+					this.plugin.settings.blogTemplatePath = value;
+					await this.plugin.saveSettings();
+				})
+			)
+			.addButton(button => button
+				.setButtonText('Browse')
+				.onClick(async () => {
+					// 既存のファイルを選択するための新しいモーダルを作成
+					new FileSelectorModal(this.app, (file) => {
+						this.plugin.settings.blogTemplatePath = file.path;
+						this.plugin.saveSettings();
+						this.display(); // 設定画面を更新
+					}).open();
+				})
+			);
+
+		// ブログ用出力フォルダの設定
+		new Setting(containerEl)
+			.setName('Blog output folder')
+			.setDesc('Select the folder where tech blog cards will be created')
+			.addText(text => text
+				.setPlaceholder('Example: TechBlogs')
+				.setValue(this.plugin.settings.blogOutputFolder)
+				.onChange(async (value) => {
+					this.plugin.settings.blogOutputFolder = value;
+					await this.plugin.saveSettings();
+				})
+			)
+			.addButton(button => button
+				.setButtonText('Browse')
+				.onClick(async () => {
+					// フォルダを選択するための新しいモーダルを作成
+					new FolderSelectorModal(this.app, (folder) => {
+						this.plugin.settings.blogOutputFolder = folder.path;
+						this.plugin.saveSettings();
+						this.display(); // 設定画面を更新
+					}).open();
+				})
+			);
+
+		// API Settingsのセクション
+		containerEl.createEl('h3', { text: 'API Settings' });
 
 		// Anthropic API Keyの設定
 		new Setting(containerEl)
@@ -580,13 +655,17 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 		containerEl.createEl('h3', { text: 'Template Variables' });
 		const templateInfo = containerEl.createEl('div');
 		templateInfo.innerHTML = `
-			<p>You can use the following variables in your template:</p>
+			<p>You can use the following variables in your templates:</p>
+			<h4>For Amazon Book templates:</h4>
 			<ul>
 				<li><code>{{book-creator:title}}</code> - Book title</li>
 				<li><code>{{book-creator:author}}</code> - Book author</li>
 				<li><code>{{book-creator:genre}}</code> - Book genre</li>
 				<li><code>{{book-creator:summary}}</code> - Book summary</li>
 				<li><code>{{book-creator:amazon-link}}</code> - Markdown link to Amazon page</li>
+			</ul>
+			<h4>For Tech Blog templates:</h4>
+			<ul>
 				<li><code>{{blog-creator:title}}</code> - Blog title</li>
 				<li><code>{{blog-creator:summary}}</code> - Blog summary</li>
 				<li><code>{{blog-creator:blog-link}}</code> - Markdown link to blog page</li>
