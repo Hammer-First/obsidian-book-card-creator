@@ -64,6 +64,8 @@ export default class BookCardCreator extends Plugin {
 		newContent = newContent.replace(/{{book-creator:author}}/g, bookInfo.author);
 		newContent = newContent.replace(/{{book-creator:genre}}/g, bookInfo.genre);
 		newContent = newContent.replace(/{{book-creator:summary}}/g, bookInfo.summary);
+		// Amazon URLをMarkdownリンクとして挿入
+		newContent = newContent.replace(/{{book-creator:amazon-link}}/g, this.createMarkdownLink(bookInfo.title, bookInfo.amazonUrl));
 
 		// ファイル名（タイトルから不正な文字を除去）
 		const fileName = `${bookInfo.title.replace(/[\\/:*?"<>|]/g, '')}.md`;
@@ -158,7 +160,8 @@ export default class BookCardCreator extends Plugin {
 				title: titleMatch ? titleMatch[1].trim() : 'Unknown Title',
 				author: authorMatch ? authorMatch[1].trim() : 'Unknown Author',
 				genre: genreMatch ? genreMatch[1].trim() : 'Fiction',
-				summary: summaryMatch ? this.cleanHtml(summaryMatch[1]).trim() : 'No summary available.'
+				summary: summaryMatch ? this.cleanHtml(summaryMatch[1]).trim() : 'No summary available.',
+				amazonUrl: amazonUrl // Amazon URLを保存
 			};
 		} catch (error) {
 			console.error('Error fetching book information:', error);
@@ -170,6 +173,14 @@ export default class BookCardCreator extends Plugin {
 	private cleanHtml(html: string): string {
 		return html.replace(/<[^>]*>/g, ' ').replace(/\s{2,}/g, ' ');
 	}
+	
+	// Obsidianのタグやリンクに干渉する文字を除去し、Markdownリンクを作成
+	private createMarkdownLink(title: string, url: string): string {
+		// Obsidianのタグやリンクに使われる特殊文字を除去
+		const cleanTitle = title.replace(/[#\[\]|]/g, '').trim();
+		// Markdown形式のリンクを作成
+		return `[${cleanTitle}](${url})`;
+	}
 }
 
 interface BookInfo {
@@ -177,6 +188,7 @@ interface BookInfo {
 	author: string;
 	genre: string;
 	summary: string;
+	amazonUrl: string;
 }
 
 class BookUrlModal extends Modal {
@@ -317,6 +329,7 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 				<li><code>{{book-creator:author}}</code> - Book author</li>
 				<li><code>{{book-creator:genre}}</code> - Book genre</li>
 				<li><code>{{book-creator:summary}}</code> - Book summary</li>
+				<li><code>{{book-creator:amazon-link}}</code> - Markdown link to Amazon page</li>
 			</ul>
 		`;
 	}

@@ -3,6 +3,7 @@
 ## 基本情報
 - **著者**: {{book-creator:author}}
 - **ジャンル**: {{book-creator:genre}}
+- **Amazon**: {{book-creator:amazon-link}}
 
 ## 概要
 {{book-creator:summary}}
