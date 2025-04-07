@@ -510,11 +510,20 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'Book Card Creator Settings' });
 
-		// Amazon Book Cardsのセクション
-		containerEl.createEl('h3', { text: 'Amazon Book Cards' });
+		// セクションを明確に分けて表示
+		this.renderAmazonBookSection(containerEl);
+		this.renderTechBlogSection(containerEl);
+		this.renderApiSection(containerEl);
+		this.renderTemplateVariables(containerEl);
+	}
+
+	// Amazon Book Cardsの設定セクション
+	private renderAmazonBookSection(containerEl: HTMLElement): void {
+		const amazonSection = containerEl.createDiv('settings-section');
+		amazonSection.createEl('h3', { text: 'Amazon Book Cards Settings' });
 
 		// 書籍用テンプレートファイルの設定
-		new Setting(containerEl)
+		new Setting(amazonSection)
 			.setName('Book template file')
 			.setDesc('Select the template file for Amazon book cards')
 			.addText(text => text
@@ -538,7 +547,7 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 			);
 
 		// 書籍用出力フォルダの設定
-		new Setting(containerEl)
+		new Setting(amazonSection)
 			.setName('Book output folder')
 			.setDesc('Select the folder where Amazon book cards will be created')
 			.addText(text => text
@@ -560,12 +569,15 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 					}).open();
 				})
 			);
+	}
 
-		// Tech Blog Cardsのセクション
-		containerEl.createEl('h3', { text: 'Tech Blog Cards' });
+	// Tech Blog Cardsの設定セクション
+	private renderTechBlogSection(containerEl: HTMLElement): void {
+		const blogSection = containerEl.createDiv('settings-section');
+		blogSection.createEl('h3', { text: 'Tech Blog Cards Settings' });
 
 		// ブログ用テンプレートファイルの設定
-		new Setting(containerEl)
+		new Setting(blogSection)
 			.setName('Blog template file')
 			.setDesc('Select the template file for tech blog cards')
 			.addText(text => text
@@ -589,7 +601,7 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 			);
 
 		// ブログ用出力フォルダの設定
-		new Setting(containerEl)
+		new Setting(blogSection)
 			.setName('Blog output folder')
 			.setDesc('Select the folder where tech blog cards will be created')
 			.addText(text => text
@@ -611,14 +623,17 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 					}).open();
 				})
 			);
+	}
 
-		// API Settingsのセクション
-		containerEl.createEl('h3', { text: 'API Settings' });
+	// API設定セクション
+	private renderApiSection(containerEl: HTMLElement): void {
+		const apiSection = containerEl.createDiv('settings-section');
+		apiSection.createEl('h3', { text: 'API Settings for Blog Summarization' });
 
 		// Anthropic API Keyの設定
-		new Setting(containerEl)
+		new Setting(apiSection)
 			.setName('Anthropic API Key')
-			.setDesc('Enter your Anthropic API key for blog summary generation')
+			.setDesc('Enter your Anthropic API key for tech blog summary generation')
 			.addText(text => text
 				.setPlaceholder('sk-ant-...')
 				.setValue(this.plugin.settings.anthropicApiKey)
@@ -629,7 +644,7 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 				.setIcon('reset')
 				.setTooltip('Save API Key')
 				.onClick(async () => {
-					const inputEl = containerEl.querySelector('input[type="password"]') as HTMLInputElement;
+					const inputEl = apiSection.querySelector('input[type="password"]') as HTMLInputElement;
 					this.plugin.settings.anthropicApiKey = inputEl.value;
 					await this.plugin.saveSettings();
 					new Notice('API Key saved');
@@ -637,7 +652,7 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 			);
 			
 		// LLMモデルの選択
-		new Setting(containerEl)
+		new Setting(apiSection)
 			.setName('Claude Model')
 			.setDesc('Select which Claude model to use for blog summarization')
 			.addDropdown(dropdown => dropdown
@@ -650,10 +665,14 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				})
 			);
+	}
 
-		// テンプレートの使い方の説明
-		containerEl.createEl('h3', { text: 'Template Variables' });
-		const templateInfo = containerEl.createEl('div');
+	// テンプレート変数の説明セクション
+	private renderTemplateVariables(containerEl: HTMLElement): void {
+		const variablesSection = containerEl.createDiv('settings-section');
+		variablesSection.createEl('h3', { text: 'Template Variables' });
+		
+		const templateInfo = variablesSection.createEl('div');
 		templateInfo.innerHTML = `
 			<p>You can use the following variables in your templates:</p>
 			<h4>For Amazon Book templates:</h4>

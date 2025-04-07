@@ -1,5 +1,5 @@
-/* Book URL Input Modal */
-.book-url-input {
+/* URL Input Modals */
+.book-url-input, .blog-url-input {
   width: 100%;
   padding: 8px;
   margin-bottom: 12px;
@@ -16,4 +16,18 @@
 
 .file-item:hover, .folder-item:hover {
   background-color: var(--background-modifier-hover);
+}
+
+/* Settings Sections */
+.settings-section {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 10px 20px;
+  margin-bottom: 20px;
+}
+
+.settings-section h3 {
+  margin-top: 0.5em;
+  padding-bottom: 0.5em;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
