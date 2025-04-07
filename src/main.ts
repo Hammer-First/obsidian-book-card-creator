@@ -329,9 +329,11 @@ Summary:`;
 			const authorMatch = htmlContent.match(/<a class="[^"]*" href="[^"]*\/e\/[^"]*">([^<]+)<\/a>/) || 
 				htmlContent.match(/id="bylineInfo"[^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/);
 			
-			// 商品説明を取得 (複数のパターンに対応)
+			// 商品説明を取得 (複数のパターンに対応、より詳細なコンテンツを取得)
 			const summaryMatch = htmlContent.match(/<div id="bookDescription_feature_div"[^>]*>([\s\S]*?)<\/div>/) || 
-				htmlContent.match(/<div id="productDescription"[^>]*>([\s\S]*?)<\/div>/);
+				htmlContent.match(/<div id="productDescription"[^>]*>([\s\S]*?)<\/div>/) ||
+				htmlContent.match(/<div class="a-expander-content[^"]*" id="[^"]*Description[^"]*"[^>]*>([\s\S]*?)<\/div>/) ||
+				htmlContent.match(/<noscript><div>([\s\S]*?)<\/div><\/noscript>/);
 			
 			// ジャンル情報を取得（カテゴリ階層から詳細なジャンルを抽出）
 			let genre = 'Fiction'; // デフォルトのジャンル
@@ -376,9 +378,15 @@ Summary:`;
 		}
 	}
 	
-	// HTMLタグを除去するヘルパーメソッド
+	// HTMLタグを除去するヘルパーメソッド（改行を維持）
 	private cleanHtml(html: string): string {
-		return html.replace(/<[^>]*>/g, ' ').replace(/\s{2,}/g, ' ');
+		// <br>や</p>タグを改行に置換してから他のHTMLタグを削除
+		return html
+			.replace(/<br[^>]*>/gi, '\n')
+			.replace(/<\/p>/gi, '\n\n')
+			.replace(/<[^>]*>/g, ' ')
+			.replace(/\s{2,}/g, ' ')
+			.trim();
 	}
 	
 	// Obsidianのタグやリンクに干渉する文字を除去し、Markdownリンクを作成
