@@ -1,13 +1,14 @@
 # Obsidian Book Card Creator
 
-Obsidian Book Card Creatorは、AmazonのURL から本の情報を取得し、カスタマイズ可能なテンプレートを使用してObsidianノートを作成するプラグインです。
+Obsidian Book Card Creatorは、AmazonのURL から本の情報を取得したり、技術ブログのURLから記事の情報を取得し、カスタマイズ可能なテンプレートを使用してObsidianノートを作成するプラグインです。
 
 ## 機能
 
 - AmazonのURLから本の情報（タイトル、著者、ジャンル、概要）を取得
+- 技術ブログのURLからタイトルと内容を取得し、AnthropicのAPI（Claude）を使って要約を生成
 - カスタマイズ可能なテンプレートを使用してノートを作成
 - テンプレートファイルと出力フォルダを指定可能
-- テンプレート内で変数を使用して本の情報を挿入
+- テンプレート内で変数を使用して情報を挿入
 
 ## インストール
 
@@ -26,22 +27,38 @@ Obsidian Book Card Creatorは、AmazonのURL から本の情報を取得し、�
 1. 設定メニューからBook Card Creator設定を開く
 2. テンプレートファイル: ノート作成に使用するテンプレートファイルを選択
 3. 出力フォルダ: 作成したノートを保存するフォルダを選択
+4. Anthropic API Key: 技術ブログの要約に使用するAnthropicのAPIキーを入力（オプション）
 
-### ノートの作成
+### 書籍ノートの作成
 
 1. コマンドパレットを開く（Ctrl+P または Cmd+P）
 2. "Create Book Card from Amazon URL" を選択
 3. AmazonのURL を入力して「Create」をクリック
 4. 情報が取得され、テンプレートに基づいて新しいノートが作成されます
 
+### 技術ブログノートの作成
+
+1. コマンドパレットを開く（Ctrl+P または Cmd+P）
+2. "Create Tech Blog Card from URL" を選択
+3. 技術ブログのURL を入力して「Create」をクリック
+4. 情報が取得され、テンプレートに基づいて新しいノートが作成されます
+5. Anthropic APIキーが設定されている場合、ブログ記事の内容がLLMによって要約されます
+
 ### テンプレートの変数
 
 テンプレートでは以下の変数を使用できます:
 
+#### 書籍カード用変数
 - `{{book-creator:title}}` - 本のタイトル
 - `{{book-creator:author}}` - 著者
 - `{{book-creator:genre}}` - ジャンル
 - `{{book-creator:summary}}` - 概要
+- `{{book-creator:amazon-link}}` - Amazonページへのリンク（Markdown形式）
+
+#### ブログカード用変数
+- `{{blog-creator:title}}` - ブログのタイトル
+- `{{blog-creator:summary}}` - LLMによる要約
+- `{{blog-creator:blog-link}}` - ブログページへのリンク（Markdown形式）
 
 ## サンプルテンプレート
 
@@ -77,6 +94,8 @@ Obsidian Book Card Creatorは、AmazonのURL から本の情報を取得し、�
 - 表紙画像の取得と埋め込み
 - 複数の書店URLのサポート
 - より高度なメタデータの取得（ページ数、出版日、ISBN等）
+- 技術ブログの抽出アルゴリズムの改善
+- 複数のLLMプロバイダーのサポート
 
 ## ライセンス
 

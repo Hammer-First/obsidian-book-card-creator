@@ -3,11 +3,15 @@ import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Set
 interface BookCardCreatorSettings {
 	templatePath: string;
 	outputFolder: string;
+	anthropicApiKey: string;
+	llmModel: string;
 }
 
 const DEFAULT_SETTINGS: BookCardCreatorSettings = {
 	templatePath: '',
-	outputFolder: ''
+	outputFolder: '',
+	anthropicApiKey: '',
+	llmModel: 'claude-3-haiku-20240307'
 }
 
 export default class BookCardCreator extends Plugin {
@@ -22,6 +26,15 @@ export default class BookCardCreator extends Plugin {
 			name: 'Create Book Card from Amazon URL',
 			callback: () => {
 				new BookUrlModal(this.app, this).open();
+			}
+		});
+
+		// 技術ブログからカードを作成するコマンドを追加
+		this.addCommand({
+			id: 'create-tech-blog-card',
+			name: 'Create Tech Blog Card from URL',
+			callback: () => {
+				new TechBlogUrlModal(this.app, this).open();
 			}
 		});
 
@@ -40,7 +53,7 @@ export default class BookCardCreator extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	async createNoteFromTemplate(bookInfo: BookInfo) {
+	async createNoteFromTemplate(bookInfo: BookInfo | BlogInfo) {
 		// テンプレートファイルが存在するか確認
 		const templateFile = this.app.vault.getAbstractFileByPath(this.settings.templatePath);
 		if (!(templateFile instanceof TFile)) {
@@ -60,21 +73,34 @@ export default class BookCardCreator extends Plugin {
 
 		// テンプレートの内容を置換
 		let newContent = templateContent;
-		newContent = newContent.replace(/{{book-creator:title}}/g, bookInfo.title);
-		newContent = newContent.replace(/{{book-creator:author}}/g, bookInfo.author);
-		newContent = newContent.replace(/{{book-creator:genre}}/g, bookInfo.genre);
-		newContent = newContent.replace(/{{book-creator:summary}}/g, bookInfo.summary);
-		// Amazon URLをMarkdownリンクとして挿入
-		newContent = newContent.replace(/{{book-creator:amazon-link}}/g, this.createMarkdownLink(bookInfo.title, bookInfo.amazonUrl));
+		
+		// BookInfoかBlogInfoかを判定
+		if ('amazonUrl' in bookInfo) {
+			// BookInfoの場合
+			const book = bookInfo as BookInfo;
+			newContent = newContent.replace(/{{book-creator:title}}/g, book.title);
+			newContent = newContent.replace(/{{book-creator:author}}/g, book.author);
+			newContent = newContent.replace(/{{book-creator:genre}}/g, book.genre);
+			newContent = newContent.replace(/{{book-creator:summary}}/g, book.summary);
+			// Amazon URLをMarkdownリンクとして挿入
+			newContent = newContent.replace(/{{book-creator:amazon-link}}/g, this.createMarkdownLink(book.title, book.amazonUrl));
+		} else if ('blogUrl' in bookInfo) {
+			// BlogInfoの場合
+			const blog = bookInfo as BlogInfo;
+			newContent = newContent.replace(/{{blog-creator:title}}/g, blog.title);
+			newContent = newContent.replace(/{{blog-creator:summary}}/g, blog.summary);
+			// Blog URLをMarkdownリンクとして挿入
+			newContent = newContent.replace(/{{blog-creator:blog-link}}/g, this.createMarkdownLink(blog.title, blog.blogUrl));
+		}
 
 		// ファイル名（タイトルから不正な文字を除去）
-		const fileName = `${bookInfo.title.replace(/[\\/:*?"<>|]/g, '')}.md`;
+		const fileName = `${'title' in bookInfo ? bookInfo.title.replace(/[\\/:*?"<>|]/g, '') : 'blog'}.md`;
 		const filePath = `${this.settings.outputFolder}/${fileName}`;
 
 		// 新しいノートを作成
 		try {
 			await this.app.vault.create(filePath, newContent);
-			new Notice(`Book card created: ${fileName}`);
+			new Notice(`Card created: ${fileName}`);
 			
 			// 作成したノートを開く
 			const newFile = this.app.vault.getAbstractFileByPath(filePath);
@@ -86,6 +112,162 @@ export default class BookCardCreator extends Plugin {
 		}
 	}
 
+	async fetchBlogInfo(blogUrl: string): Promise<BlogInfo> {
+		// URLのバリデーション
+		if (!blogUrl.includes('http')) {
+			throw new Error('Invalid Blog URL');
+		}
+
+		try {
+			// CORSの問題を回避するためにプロキシサービスを使用
+			const proxyUrls = [
+				`https://api.allorigins.win/get?url=${encodeURIComponent(blogUrl)}`,
+				`https://corsproxy.io/?${encodeURIComponent(blogUrl)}`,
+				`https://cors-anywhere.herokuapp.com/${blogUrl}`
+			];
+			
+			let htmlContent = '';
+			let proxyError = '';
+			
+			// プロキシを順番に試す
+			for (const proxyUrl of proxyUrls) {
+				try {
+					const response = await fetch(proxyUrl);
+					
+					if (!response.ok) {
+						proxyError = `Failed to fetch data: ${response.status}`;
+						continue;
+					}
+					
+					// レスポンスタイプを確認
+					const contentType = response.headers.get('content-type');
+					
+					if (contentType && contentType.includes('application/json')) {
+						// JSONレスポンスの場合
+						const responseData = await response.json();
+						if (responseData.contents) {
+							// allorigins形式のレスポンス
+							htmlContent = responseData.contents;
+						}
+					} else {
+						// テキスト/HTMLレスポンスの場合
+						htmlContent = await response.text();
+					}
+					
+					// 成功したらループを抜ける
+					if (htmlContent) break;
+					
+				} catch (err) {
+					proxyError = `Proxy error: ${err.message}`;
+					continue;
+				}
+			}
+			
+			if (!htmlContent) {
+				throw new Error(`Failed to fetch blog data: ${proxyError}`);
+			}
+			
+			// HTMLからメタデータを抽出
+			const titleMatch = htmlContent.match(/<title[^>]*>([^<]+)<\/title>/) || 
+				htmlContent.match(/<h1[^>]*>([^<]+)<\/h1>/);
+			
+			// ページコンテンツを取得
+			const bodyContent = this.extractMainContent(htmlContent);
+			const cleanedContent = this.cleanHtml(bodyContent);
+			
+			// Anthropic APIで要約を生成
+			let summary = 'No summary available.';
+			if (cleanedContent && this.settings.anthropicApiKey) {
+				try {
+					summary = await this.generateSummaryWithAnthropic(cleanedContent);
+				} catch (error) {
+					console.error('Error generating summary:', error);
+					summary = 'Failed to generate summary: ' + error.message;
+				}
+			}
+			
+			// データを整形して返す
+			return {
+				title: titleMatch ? titleMatch[1].trim() : 'Unknown Title',
+				summary: summary,
+				blogUrl: blogUrl
+			};
+		} catch (error) {
+			console.error('Error fetching blog information:', error);
+			throw new Error('Failed to fetch blog information. Please check the URL and try again.');
+		}
+	}
+	
+	// メインコンテンツを抽出するヘルパーメソッド
+	private extractMainContent(html: string): string {
+		// 一般的なコンテンツコンテナを探す
+		const contentMatches = [
+			html.match(/<article[^>]*>([\s\S]*?)<\/article>/),
+			html.match(/<main[^>]*>([\s\S]*?)<\/main>/),
+			html.match(/<div[^>]*?class="[^"]*?content[^"]*?"[^>]*>([\s\S]*?)<\/div>/i),
+			html.match(/<div[^>]*?class="[^"]*?entry[^"]*?"[^>]*>([\s\S]*?)<\/div>/i),
+			html.match(/<div[^>]*?class="[^"]*?post[^"]*?"[^>]*>([\s\S]*?)<\/div>/i)
+		];
+		
+		for (const match of contentMatches) {
+			if (match && match[1]) {
+				return match[1];
+			}
+		}
+		
+		// メインコンテンツが見つからない場合はbodyタグの中身を返す
+		const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/);
+		return bodyMatch ? bodyMatch[1] : html;
+	}
+	
+	// Anthropic APIで要約を生成するメソッド
+	private async generateSummaryWithAnthropic(content: string): Promise<string> {
+		const apiKey = this.settings.anthropicApiKey;
+		if (!apiKey) {
+			throw new Error('Anthropic API key is not set');
+		}
+		
+		const maxContentLength = 10000; // 長すぎるコンテンツは切り詰める
+		const truncatedContent = content.length > maxContentLength ? 
+			content.substring(0, maxContentLength) + '...' : content;
+		
+		const prompt = `
+Here's the content of a technical blog post. Please summarize it in a concise way, highlighting the main points, key technical concepts, and any important conclusions:
+
+${truncatedContent}
+
+Summary:`;
+		
+		try {
+			const response = await fetch('https://api.anthropic.com/v1/messages', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'x-api-key': apiKey,
+					'anthropic-version': '2023-06-01'
+				},
+				body: JSON.stringify({
+					model: this.settings.llmModel,
+					max_tokens: 1000,
+					messages: [
+						{ role: 'user', content: prompt }
+					]
+				})
+			});
+			
+			if (!response.ok) {
+				const errorData = await response.json();
+				throw new Error(`Anthropic API Error: ${errorData.error?.message || response.statusText}`);
+			}
+			
+			const data = await response.json();
+			return data.content[0].text || 'No summary available.';
+		} catch (error) {
+			console.error('Error calling Anthropic API:', error);
+			throw new Error('Failed to generate summary with Anthropic API');
+		}
+	}
+	
 	async fetchBookInfo(amazonUrl: string): Promise<BookInfo> {
 		// URLのバリデーション
 		if (!amazonUrl.includes('amazon')) {
@@ -216,6 +398,12 @@ interface BookInfo {
 	amazonUrl: string;
 }
 
+interface BlogInfo {
+	title: string;
+	summary: string;
+	blogUrl: string;
+}
+
 class BookUrlModal extends Modal {
 	plugin: BookCardCreator;
 	url: string = '';
@@ -344,6 +532,42 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 				})
 			);
 
+		// Anthropic API Keyの設定
+		new Setting(containerEl)
+			.setName('Anthropic API Key')
+			.setDesc('Enter your Anthropic API key for blog summary generation')
+			.addText(text => text
+				.setPlaceholder('sk-ant-...')
+				.setValue(this.plugin.settings.anthropicApiKey)
+				.setDisabled(false)
+				.inputEl.type = 'password'
+			)
+			.addExtraButton(btn => btn
+				.setIcon('reset')
+				.setTooltip('Save API Key')
+				.onClick(async () => {
+					const inputEl = containerEl.querySelector('input[type="password"]') as HTMLInputElement;
+					this.plugin.settings.anthropicApiKey = inputEl.value;
+					await this.plugin.saveSettings();
+					new Notice('API Key saved');
+				})
+			);
+			
+		// LLMモデルの選択
+		new Setting(containerEl)
+			.setName('Claude Model')
+			.setDesc('Select which Claude model to use for blog summarization')
+			.addDropdown(dropdown => dropdown
+				.addOption('claude-3-haiku-20240307', 'Claude 3 Haiku (Fast)')
+				.addOption('claude-3-sonnet-20240229', 'Claude 3 Sonnet (Balanced)')
+				.addOption('claude-3-opus-20240229', 'Claude 3 Opus (Powerful)')
+				.setValue(this.plugin.settings.llmModel)
+				.onChange(async (value) => {
+					this.plugin.settings.llmModel = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
 		// テンプレートの使い方の説明
 		containerEl.createEl('h3', { text: 'Template Variables' });
 		const templateInfo = containerEl.createEl('div');
@@ -355,6 +579,9 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 				<li><code>{{book-creator:genre}}</code> - Book genre</li>
 				<li><code>{{book-creator:summary}}</code> - Book summary</li>
 				<li><code>{{book-creator:amazon-link}}</code> - Markdown link to Amazon page</li>
+				<li><code>{{blog-creator:title}}</code> - Blog title</li>
+				<li><code>{{blog-creator:summary}}</code> - Blog summary</li>
+				<li><code>{{blog-creator:blog-link}}</code> - Markdown link to blog page</li>
 			</ul>
 		`;
 	}
@@ -407,6 +634,93 @@ class FileSelectorModal extends Modal {
 }
 
 // フォルダ選択用のモーダル
+class TechBlogUrlModal extends Modal {
+	plugin: BookCardCreator;
+	url: string = '';
+
+	constructor(app: App, plugin: BookCardCreator) {
+		super(app);
+		this.plugin = plugin;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl('h2', { text: 'Enter Tech Blog URL' });
+
+		// URL入力フィールド
+		const urlInputContainer = contentEl.createDiv();
+		const urlInput = urlInputContainer.createEl('input', {
+			attr: {
+				type: 'text',
+				placeholder: 'https://blog.example.com/...'
+			},
+			cls: 'blog-url-input'
+		});
+		urlInput.style.width = '100%';
+		urlInput.style.marginBottom = '1em';
+		urlInput.addEventListener('input', (e) => {
+			this.url = (e.target as HTMLInputElement).value;
+		});
+
+		// APIキーの警告（設定されていない場合）
+		if (!this.plugin.settings.anthropicApiKey) {
+			const warningDiv = contentEl.createDiv();
+			warningDiv.style.color = 'var(--text-error)';
+			warningDiv.style.marginBottom = '1em';
+			warningDiv.createEl('p', { text: 'Warning: Anthropic API Key is not set. LLM summary will not be available.' });
+		}
+		
+		// 選択されているモデルの情報を表示
+		const modelInfo = contentEl.createDiv();
+		modelInfo.style.marginBottom = '1em';
+		let modelName = 'Unknown';
+		if (this.plugin.settings.llmModel === 'claude-3-haiku-20240307') {
+			modelName = 'Claude 3 Haiku (Fast)';
+		} else if (this.plugin.settings.llmModel === 'claude-3-sonnet-20240229') {
+			modelName = 'Claude 3 Sonnet (Balanced)';
+		} else if (this.plugin.settings.llmModel === 'claude-3-opus-20240229') {
+			modelName = 'Claude 3 Opus (Powerful)';
+		}
+		modelInfo.createEl('p', { text: `Selected model: ${modelName}` });
+
+		// ボタンコンテナ
+		const buttonContainer = contentEl.createDiv();
+		buttonContainer.style.display = 'flex';
+		buttonContainer.style.justifyContent = 'flex-end';
+		buttonContainer.style.gap = '0.5em';
+
+		// キャンセルボタン
+		const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
+		cancelButton.addEventListener('click', () => this.close());
+
+		// 作成ボタン
+		const createButton = buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
+		createButton.addEventListener('click', async () => {
+			if (!this.url) {
+				new Notice('Please enter a valid tech blog URL');
+				return;
+			}
+
+			try {
+				new Notice('Fetching blog information...');
+				const blogInfo = await this.plugin.fetchBlogInfo(this.url);
+				await this.plugin.createNoteFromTemplate(blogInfo);
+				this.close();
+			} catch (error) {
+				new Notice(`Error: ${error}`);
+			}
+		});
+
+		// 入力フィールドにフォーカス
+		urlInput.focus();
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
+
 class FolderSelectorModal extends Modal {
 	onSelect: (folder: TFolder) => void;
 
