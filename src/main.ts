@@ -9,6 +9,24 @@ interface BookCardCreatorSettings {
 	llmModel: string;
 }
 
+// カードの共通インターフェース
+interface CardInfo {
+	title: string;
+	summary: string;
+}
+
+interface BookInfo extends CardInfo {
+	author: string;
+	genre: string;
+	genreUrl: string;
+	amazonUrl: string;
+}
+
+interface BlogInfo extends CardInfo {
+	blogUrl: string;
+}
+
+// アプリのデフォルト設定
 const DEFAULT_SETTINGS: BookCardCreatorSettings = {
 	bookTemplatePath: '',
 	bookOutputFolder: '',
@@ -18,10 +36,14 @@ const DEFAULT_SETTINGS: BookCardCreatorSettings = {
 	llmModel: 'claude-3-haiku-20240307'
 }
 
+// URLパターンの正規表現
+const URL_PATTERN = /(https?:\/\/[^\s()<>]+(?:\([\w\d]+\)|([^!\s()<>.,;:'"[\]{}]|\/)))/g;
+
 export default class BookCardCreator extends Plugin {
 	settings: BookCardCreatorSettings;
 
 	async onload() {
+		console.log('Loading Book Card Creator plugin v1.3.1');
 		await this.loadSettings();
 
 		// スタイルシートを読み込む
@@ -50,38 +72,106 @@ export default class BookCardCreator extends Plugin {
 			id: 'create-card-from-cursor',
 			name: 'Create Card from URL under cursor',
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
-				// カーソル位置のURLを取得
-				const url = this.getUrlUnderCursor(editor);
-				if (!url) {
-					new Notice('No URL found under cursor');
-					return;
-				}
-
-				// URLがAmazonのものかどうかを判定
-				if (url.includes('amazon')) {
-					// Amazonの場合は前入力済みのモーダルを表示
-					const modal = new BookUrlModal(this.app, this);
-					modal.url = url;
-					modal.open();
-					// URLが入力済みなので自動的に処理を開始
-					setTimeout(() => {
-						modal.startProcessing();
-					}, 100); // 少し遅延させてモーダルが完全に表示された後に処理を開始
-				} else {
-					// ブログの場合も前入力済みのモーダルを表示
-					const modal = new TechBlogUrlModal(this.app, this);
-					modal.url = url;
-					modal.open();
-					// URLが入力済みなので自動的に処理を開始
-					setTimeout(() => {
-						modal.startProcessing();
-					}, 100); // 少し遅延させてモーダルが完全に表示された後に処理を開始
+				try {
+					// カーソル位置のURLを取得
+					const url = this.getUrlUnderCursor(editor);
+					if (!url) {
+						new Notice('No URL found under cursor');
+						return;
+					}
+					
+					console.log(`Found URL under cursor: ${url}`);
+					
+					// URLの種類に基づいて適切なモーダルを開く
+					this.openModalForUrl(url);
+				} catch (error) {
+					console.error('Error processing URL under cursor:', error);
+					new Notice(`Error processing URL: ${error instanceof Error ? error.message : String(error)}`);
 				}
 			}
 		});
 
 		// 設定タブを追加
 		this.addSettingTab(new BookCardCreatorSettingTab(this.app, this));
+		
+		console.log('Book Card Creator plugin loaded successfully');
+	}
+	
+	/**
+	 * URLの種類を検出する
+	 * @param url 検査対象のURL
+	 * @returns URLの種類 ('amazon' または 'blog')
+	 */
+	private detectUrlType(url: string): 'amazon' | 'blog' {
+		// URLのバリデーション
+		if (!url.startsWith('http://') && !url.startsWith('https://')) {
+			// 完全なURLでない場合はブログとして扱う
+			return 'blog';
+		}
+		
+		// Amazonの複数のドメインパターンに対応
+		const amazonDomains = [
+			'amazon.com', 
+			'amazon.co.jp', 
+			'amazon.co.uk', 
+			'amazon.de', 
+			'amazon.fr', 
+			'amazon.it', 
+			'amazon.es', 
+			'amazon.ca', 
+			'amazon.in', 
+			'amazon.com.au', 
+			'amazon.com.br', 
+			'amazon.nl', 
+			'amazon.com.mx', 
+			'amzn.to', // 短縮URL
+			'a.co' // 短縮URL
+		];
+		
+		try {
+			// URLオブジェクトを作成してドメインを取得
+			const urlObj = new URL(url);
+			const domain = urlObj.hostname;
+			
+			// Amazonドメインかどうかをチェック
+			for (const amazonDomain of amazonDomains) {
+				if (domain.includes(amazonDomain)) {
+					return 'amazon';
+				}
+			}
+		} catch (error) {
+			// URLの解析に失敗した場合はログに記録
+			console.error('Error parsing URL:', error);
+		}
+		
+		// デフォルトはブログとして扱う
+		return 'blog';
+	}
+
+	// URLに基づいて適切なモーダルを開き、自動処理を開始
+	private openModalForUrl(url: string): void {
+		let modal: UrlModal;
+		
+		// URLの種類を検出
+		const urlType = this.detectUrlType(url);
+		
+		// 適切なモーダルを選択
+		if (urlType === 'amazon') {
+			// Amazonの場合は書籍用モーダル
+			modal = new BookUrlModal(this.app, this);
+		} else {
+			// それ以外はブログ用モーダル
+			modal = new TechBlogUrlModal(this.app, this);
+		}
+		
+		// URLを設定してモーダルを表示
+		modal.url = url;
+		modal.open();
+		
+		// URLが入力済みなので自動的に処理を開始（少し遅延させる）
+		setTimeout(() => {
+			modal.startProcessing();
+		}, 100);
 	}
 	
 	// プラグインのスタイルシートを読み込む
@@ -92,6 +182,7 @@ export default class BookCardCreator extends Plugin {
 	}
 
 	onunload() {
+		console.log('Unloading Book Card Creator plugin');
 	}
 
 	async loadSettings() {
@@ -102,31 +193,62 @@ export default class BookCardCreator extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	async createNoteFromTemplate(bookInfo: BookInfo | BlogInfo) {
+	/**
+	 * ファイルパスからTFileオブジェクトを取得（存在確認）
+	 * @param filePath ファイルパス
+	 * @returns TFileオブジェクトまたはnull
+	 */
+	private getTemplateFile(filePath: string): TFile | null {
+		const file = this.app.vault.getAbstractFileByPath(filePath);
+		return file instanceof TFile ? file : null;
+	}
+	
+	/**
+	 * フォルダパスからTFolderオブジェクトを取得（存在確認）
+	 * @param folderPath フォルダパス
+	 * @returns TFolderオブジェクトまたはnull
+	 */
+	private getOutputFolder(folderPath: string): TFolder | null {
+		const folder = this.app.vault.getAbstractFileByPath(folderPath);
+		return folder instanceof TFolder ? folder : null;
+	}
+	
+	/**
+	 * ファイル名に使用できない文字を除去
+	 * @param title ファイル名に使いたいタイトル
+	 * @returns 安全なファイル名
+	 */
+	private sanitizeFilename(title: string): string {
+		return title.replace(/[\\/:*?"<>|]/g, '');
+	}
+
+	/**
+	 * カード情報からテンプレートを使用してノートを作成
+	 * @param cardInfo BookInfoかBlogInfoオブジェクト
+	 */
+	async createNoteFromTemplate(cardInfo: BookInfo | BlogInfo) {
 		let templatePath = '';
 		let outputFolderPath = '';
 		
 		// BookInfoかBlogInfoかを判定してテンプレートと出力フォルダを選択
-		if ('amazonUrl' in bookInfo) {
-			// BookInfoの場合
+		if (this.isBookInfo(cardInfo)) {
 			templatePath = this.settings.bookTemplatePath;
 			outputFolderPath = this.settings.bookOutputFolder;
-		} else if ('blogUrl' in bookInfo) {
-			// BlogInfoの場合
+		} else if (this.isBlogInfo(cardInfo)) {
 			templatePath = this.settings.blogTemplatePath;
 			outputFolderPath = this.settings.blogOutputFolder;
 		}
 		
 		// テンプレートファイルが存在するか確認
-		const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
-		if (!(templateFile instanceof TFile)) {
+		const templateFile = this.getTemplateFile(templatePath);
+		if (!templateFile) {
 			new Notice('Template file not found. Please check your settings.');
 			return;
 		}
 
 		// 出力フォルダが存在するか確認
-		const outputFolder = this.app.vault.getAbstractFileByPath(outputFolderPath);
-		if (!(outputFolder instanceof TFolder)) {
+		const outputFolder = this.getOutputFolder(outputFolderPath);
+		if (!outputFolder) {
 			new Notice('Output folder not found. Please check your settings.');
 			return;
 		}
@@ -138,32 +260,14 @@ export default class BookCardCreator extends Plugin {
 		let newContent = templateContent;
 		
 		// BookInfoかBlogInfoかを判定して適切な置換を行う
-		if ('amazonUrl' in bookInfo) {
-			// BookInfoの場合
-			const book = bookInfo as BookInfo;
-			newContent = newContent.replace(/{{book-creator:title}}/g, book.title);
-			newContent = newContent.replace(/{{book-creator:author}}/g, book.author);
-			newContent = newContent.replace(/{{book-creator:genre}}/g, book.genre);
-			newContent = newContent.replace(/{{book-creator:summary}}/g, book.summary);
-			// Amazon URLをMarkdownリンクとして挿入
-			newContent = newContent.replace(/{{book-creator:amazon-link}}/g, this.createMarkdownLink(book.title, book.amazonUrl));
-			// ジャンルURLのリンクも挿入（ジャンルURLがある場合のみ）
-			if (book.genreUrl) {
-				newContent = newContent.replace(/{{book-creator:genre-link}}/g, this.createMarkdownLink(book.genre, book.genreUrl));
-			} else {
-				newContent = newContent.replace(/{{book-creator:genre-link}}/g, book.genre);
-			}
-		} else if ('blogUrl' in bookInfo) {
-			// BlogInfoの場合
-			const blog = bookInfo as BlogInfo;
-			newContent = newContent.replace(/{{blog-creator:title}}/g, blog.title);
-			newContent = newContent.replace(/{{blog-creator:summary}}/g, blog.summary);
-			// Blog URLをMarkdownリンクとして挿入
-			newContent = newContent.replace(/{{blog-creator:blog-link}}/g, this.createMarkdownLink(blog.title, blog.blogUrl));
+		if (this.isBookInfo(cardInfo)) {
+			newContent = this.applyBookTemplate(newContent, cardInfo);
+		} else if (this.isBlogInfo(cardInfo)) {
+			newContent = this.applyBlogTemplate(newContent, cardInfo);
 		}
 
 		// ファイル名（タイトルから不正な文字を除去）
-		const fileName = `${'title' in bookInfo ? bookInfo.title.replace(/[\\/:*?"<>|]/g, '') : 'blog'}.md`;
+		const fileName = `${this.sanitizeFilename(cardInfo.title)}.md`;
 		const filePath = `${outputFolderPath}/${fileName}`;
 
 		// 新しいノートを作成
@@ -177,10 +281,71 @@ export default class BookCardCreator extends Plugin {
 				this.app.workspace.getLeaf().openFile(newFile);
 			}
 		} catch (error) {
-			new Notice(`Error creating note: ${error}`);
+			new Notice(`Error creating note: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
+	
+	/**
+	 * 書籍情報をテンプレートに適用
+	 */
+	private applyBookTemplate(template: string, book: BookInfo): string {
+		let result = template;
+		
+		// 基本情報を置換
+		result = result.replace(/{{book-creator:title}}/g, book.title);
+		result = result.replace(/{{book-creator:author}}/g, book.author);
+		result = result.replace(/{{book-creator:genre}}/g, book.genre);
+		result = result.replace(/{{book-creator:summary}}/g, book.summary);
+		
+		// Amazon URLをMarkdownリンクとして挿入
+		result = result.replace(/{{book-creator:amazon-link}}/g, 
+			this.createMarkdownLink(book.title, book.amazonUrl));
+		
+		// ジャンルURLのリンクも挿入（ジャンルURLがある場合のみ）
+		if (book.genreUrl) {
+			result = result.replace(/{{book-creator:genre-link}}/g, 
+				this.createMarkdownLink(book.genre, book.genreUrl));
+		} else {
+			result = result.replace(/{{book-creator:genre-link}}/g, book.genre);
+		}
+		
+		return result;
+	}
+	
+	/**
+	 * ブログ情報をテンプレートに適用
+	 */
+	private applyBlogTemplate(template: string, blog: BlogInfo): string {
+		let result = template;
+		
+		// 基本情報を置換
+		result = result.replace(/{{blog-creator:title}}/g, blog.title);
+		result = result.replace(/{{blog-creator:summary}}/g, blog.summary);
+		
+		// Blog URLをMarkdownリンクとして挿入
+		result = result.replace(/{{blog-creator:blog-link}}/g, 
+			this.createMarkdownLink(blog.title, blog.blogUrl));
+		
+		return result;
+	}
+	
+	/**
+	 * 型ガード: 与えられたオブジェクトがBookInfo型かどうかを判定
+	 */
+	private isBookInfo(info: BookInfo | BlogInfo): info is BookInfo {
+		return 'amazonUrl' in info;
+	}
+	
+	/**
+	 * 型ガード: 与えられたオブジェクトがBlogInfo型かどうかを判定
+	 */
+	private isBlogInfo(info: BookInfo | BlogInfo): info is BlogInfo {
+		return 'blogUrl' in info;
+	}
 
+	/**
+	 * ブログURLから情報を取得
+	 */
 	async fetchBlogInfo(blogUrl: string): Promise<BlogInfo> {
 		// URLのバリデーション
 		if (!blogUrl.includes('http')) {
@@ -188,53 +353,8 @@ export default class BookCardCreator extends Plugin {
 		}
 
 		try {
-			// CORSの問題を回避するためにプロキシサービスを使用
-			const proxyUrls = [
-				`https://api.allorigins.win/get?url=${encodeURIComponent(blogUrl)}`,
-				`https://corsproxy.io/?${encodeURIComponent(blogUrl)}`,
-				`https://cors-anywhere.herokuapp.com/${blogUrl}`
-			];
-			
-			let htmlContent = '';
-			let proxyError = '';
-			
-			// プロキシを順番に試す
-			for (const proxyUrl of proxyUrls) {
-				try {
-					const response = await fetch(proxyUrl);
-					
-					if (!response.ok) {
-						proxyError = `Failed to fetch data: ${response.status}`;
-						continue;
-					}
-					
-					// レスポンスタイプを確認
-					const contentType = response.headers.get('content-type');
-					
-					if (contentType && contentType.includes('application/json')) {
-						// JSONレスポンスの場合
-						const responseData = await response.json();
-						if (responseData.contents) {
-							// allorigins形式のレスポンス
-							htmlContent = responseData.contents;
-						}
-					} else {
-						// テキスト/HTMLレスポンスの場合
-						htmlContent = await response.text();
-					}
-					
-					// 成功したらループを抜ける
-					if (htmlContent) break;
-					
-				} catch (err) {
-					proxyError = `Proxy error: ${err.message}`;
-					continue;
-				}
-			}
-			
-			if (!htmlContent) {
-				throw new Error(`Failed to fetch blog data: ${proxyError}`);
-			}
+			// HTMLコンテンツを取得
+			const htmlContent = await this.fetchHtmlContent(blogUrl);
 			
 			// HTMLからメタデータを抽出
 			const titleMatch = htmlContent.match(/<title[^>]*>([^<]+)<\/title>/) || 
@@ -251,7 +371,7 @@ export default class BookCardCreator extends Plugin {
 					summary = await this.generateSummaryWithAnthropic(cleanedContent);
 				} catch (error) {
 					console.error('Error generating summary:', error);
-					summary = 'Failed to generate summary: ' + error.message;
+					summary = 'Failed to generate summary: ' + (error instanceof Error ? error.message : String(error));
 				}
 			}
 			
@@ -267,7 +387,213 @@ export default class BookCardCreator extends Plugin {
 		}
 	}
 	
-	// メインコンテンツを抽出するヘルパーメソッド
+	/**
+	 * Amazonの本のURLから情報を取得
+	 */
+	async fetchBookInfo(amazonUrl: string): Promise<BookInfo> {
+		// URLのバリデーション
+		if (!amazonUrl.includes('amazon')) {
+			throw new Error('Invalid Amazon URL');
+		}
+
+		try {
+			// HTMLコンテンツを取得
+			const htmlContent = await this.fetchHtmlContent(amazonUrl);
+			
+			// HTMLからメタデータを抽出
+			const titleMatch = htmlContent.match(/<span id="productTitle"[^>]*>([^<]+)<\/span>/);
+			const authorMatch = htmlContent.match(/<a class="[^"]*" href="[^"]*\/e\/[^"]*">([^<]+)<\/a>/) || 
+				htmlContent.match(/id="bylineInfo"[^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/);
+			
+			// 商品説明を取得 (複数のパターンに対応、より詳細なコンテンツを取得)
+			const summaryMatch = htmlContent.match(/<div id="bookDescription_feature_div"[^>]*>([\s\S]*?)<\/div>/) || 
+				htmlContent.match(/<div id="productDescription"[^>]*>([\s\S]*?)<\/div>/) ||
+				htmlContent.match(/<div class="a-expander-content[^"]*" id="[^"]*Description[^"]*"[^>]*>([\s\S]*?)<\/div>/) ||
+				htmlContent.match(/<noscript><div>([\s\S]*?)<\/div><\/noscript>/);
+			
+			// ジャンル情報とリンクを取得
+			const { genre, genreUrl } = this.extractGenreInfo(htmlContent, amazonUrl);
+			
+			// データを整形して返す
+			return {
+				title: titleMatch ? titleMatch[1].trim() : 'Unknown Title',
+				author: authorMatch ? authorMatch[1].trim() : 'Unknown Author',
+				genre: genre,
+				genreUrl: genreUrl,
+				summary: summaryMatch ? this.cleanHtml(summaryMatch[1]).trim() : 'No summary available.',
+				amazonUrl: amazonUrl
+			};
+		} catch (error) {
+			console.error('Error fetching book information:', error);
+			throw new Error('Failed to fetch book information. Please check the URL and try again.');
+		}
+	}
+	
+	/**
+	 * HTMLコンテンツからジャンル情報を抽出
+	 */
+	private extractGenreInfo(htmlContent: string, baseUrl: string): { genre: string, genreUrl: string } {
+		let genre = 'Fiction'; // デフォルトのジャンル
+		let genreUrl = ''; // ジャンルのURL
+		
+		// パンくずリストからカテゴリ階層を取得
+		const breadcrumbsMatch = htmlContent.match(/id="wayfinding-breadcrumbs_feature_div"[^>]*>([\s\S]*?)<\/div>/);
+		if (breadcrumbsMatch) {
+			const breadcrumbs = breadcrumbsMatch[1];
+			// リンクを含むすべてのaタグを抽出
+			const categoryLinkElements = breadcrumbs.match(/<a[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/g);
+			
+			if (categoryLinkElements && categoryLinkElements.length > 0) {
+				// 最後のカテゴリを使用
+				const lastCategoryIndex = categoryLinkElements.length - 1;
+				const lastCategoryElement = categoryLinkElements[lastCategoryIndex];
+				
+				// カテゴリ名を抽出
+				const categoryTextMatch = lastCategoryElement.match(/>([^<]+)</);
+				if (categoryTextMatch) {
+					genre = categoryTextMatch[1].trim();
+				}
+				
+				// URLを抽出
+				const hrefMatch = lastCategoryElement.match(/href="([^"]*)"/);
+				if (hrefMatch) {
+					genreUrl = hrefMatch[1];
+					genreUrl = this.normalizeUrl(genreUrl, baseUrl);
+				}
+			}
+		}
+		
+		// 他の方法でもジャンル情報を探す
+		if (genre === 'Fiction' || genre === 'Kindle Store') {
+			const genreMatch = htmlContent.match(/<a class="a-link-normal a-color-tertiary"[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/);
+			if (genreMatch && genreMatch[2] && genreMatch[2].trim() !== 'Kindle Store') {
+				genre = genreMatch[2].trim();
+				if (genreMatch[1]) {
+					genreUrl = genreMatch[1];
+					genreUrl = this.normalizeUrl(genreUrl, baseUrl);
+				}
+			}
+		}
+		
+		return { genre, genreUrl };
+	}
+	
+	/**
+	 * 相対URLを絶対URLに変換
+	 */
+	private normalizeUrl(url: string, baseUrl: string): string {
+		if (url.startsWith('/')) {
+			const urlParts = baseUrl.match(/^(https?:\/\/[^\/]+)\//);
+			if (urlParts) {
+				return urlParts[1] + url;
+			}
+		}
+		return url;
+	}
+	
+	/**
+	 * タイムアウト付きのfetchを実行
+	 * @param url 取得するURL
+	 * @param timeoutMs タイムアウト時間（ミリ秒）
+	 * @returns Response オブジェクト
+	 */
+	private fetchWithTimeout(url: string, timeoutMs = 10000): Promise<Response> {
+		// AbortControllerを使ってタイムアウトを実装
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+		
+		return fetch(url, { signal: controller.signal })
+			.finally(() => clearTimeout(timeoutId));
+	}
+	
+	/**
+	 * リトライ機能付きのfetch
+	 * @param url 取得するURL
+	 * @param options fetchオプション
+	 * @param retries リトライ回数
+	 * @param timeoutMs タイムアウト時間（ミリ秒）
+	 * @returns Response オブジェクト
+	 */
+	private async fetchWithRetry(url: string, options = {}, retries = 3, timeoutMs = 10000): Promise<Response> {
+		let lastError: Error | null = null;
+		
+		for (let i = 0; i < retries; i++) {
+			try {
+				// 指数バックオフでリトライ間隔を増やす（最初のトライではウェイトなし）
+				if (i > 0) {
+					const waitTime = Math.min(1000 * Math.pow(2, i - 1), 10000);
+					await new Promise(resolve => setTimeout(resolve, waitTime));
+				}
+				
+				return await this.fetchWithTimeout(url, timeoutMs);
+			} catch (error) {
+				lastError = error instanceof Error ? error : new Error(String(error));
+				console.log(`Fetch attempt ${i + 1} failed: ${lastError.message}`);
+			}
+		}
+		
+		throw lastError || new Error('Failed to fetch after multiple retries');
+	}
+
+	/**
+	 * URLからHTMLコンテンツを取得（複数のプロキシを試す）
+	 */
+	private async fetchHtmlContent(url: string): Promise<string> {
+		// CORSの問題を回避するためにプロキシサービスを使用
+		const proxyUrls = [
+			`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+			`https://corsproxy.io/?${encodeURIComponent(url)}`,
+			`https://cors-anywhere.herokuapp.com/${url}`
+		];
+		
+		let htmlContent = '';
+		let proxyError = '';
+		
+		// プロキシを順番に試す
+		for (const proxyUrl of proxyUrls) {
+			try {
+				// 改良版のfetchを使用
+				const response = await this.fetchWithRetry(proxyUrl, {}, 2, 15000);
+				
+				if (!response.ok) {
+					proxyError = `Failed to fetch data: ${response.status}`;
+					continue;
+				}
+				
+				// レスポンスタイプを確認
+				const contentType = response.headers.get('content-type');
+				
+				if (contentType && contentType.includes('application/json')) {
+					// JSONレスポンスの場合
+					const responseData = await response.json();
+					if (responseData.contents) {
+						// allorigins形式のレスポンス
+						htmlContent = responseData.contents;
+					}
+				} else {
+					// テキスト/HTMLレスポンスの場合
+					htmlContent = await response.text();
+				}
+				
+				// 成功したらループを抜ける
+				if (htmlContent) break;
+				
+			} catch (err) {
+				proxyError = `Proxy error: ${err instanceof Error ? err.message : String(err)}`;
+				continue;
+			}
+		}
+		
+		if (!htmlContent) {
+			throw new Error(`Failed to fetch content: ${proxyError}`);
+		}
+		
+		return htmlContent;
+	}
+	
+	/**
+	 * メインコンテンツを抽出するヘルパーメソッド
+	 */
 	private extractMainContent(html: string): string {
 		// 一般的なコンテンツコンテナを探す
 		const contentMatches = [
@@ -289,11 +615,14 @@ export default class BookCardCreator extends Plugin {
 		return bodyMatch ? bodyMatch[1] : html;
 	}
 	
-	// Anthropic APIで要約を生成するメソッド
+	/**
+	 * Anthropic APIで要約を生成するメソッド
+	 */
 	private async generateSummaryWithAnthropic(content: string): Promise<string> {
 		const apiKey = this.settings.anthropicApiKey;
 		if (!apiKey) {
-			throw new Error('Anthropic API key is not set');
+			// APIキーが設定されていない場合は適切なメッセージを返す
+			return 'No summary available. Please set an Anthropic API key in settings to enable automatic summarization.';
 		}
 		
 		const maxContentLength = 10000; // 長すぎるコンテンツは切り詰める
@@ -333,148 +662,14 @@ Summary:`;
 			return data.content[0].text || 'No summary available.';
 		} catch (error) {
 			console.error('Error calling Anthropic API:', error);
-			throw new Error('Failed to generate summary with Anthropic API');
+			// エラーメッセージをユーザーフレンドリーにする
+			return `Unable to generate summary: ${error instanceof Error ? error.message : String(error)}. Check your API key and try again.`;
 		}
 	}
 	
-	async fetchBookInfo(amazonUrl: string): Promise<BookInfo> {
-		// URLのバリデーション
-		if (!amazonUrl.includes('amazon')) {
-			throw new Error('Invalid Amazon URL');
-		}
-
-		try {
-			// CORSの問題を回避するためにプロキシサービスを使用
-			// 複数のプロキシオプションを用意
-			const proxyUrls = [
-				`https://api.allorigins.win/get?url=${encodeURIComponent(amazonUrl)}`,
-				`https://corsproxy.io/?${encodeURIComponent(amazonUrl)}`,
-				`https://cors-anywhere.herokuapp.com/${amazonUrl}`
-			];
-			
-			let htmlContent = '';
-			let proxyError = '';
-			
-			// プロキシを順番に試す
-			for (const proxyUrl of proxyUrls) {
-				try {
-					const response = await fetch(proxyUrl);
-					
-					if (!response.ok) {
-						proxyError = `Failed to fetch data: ${response.status}`;
-						continue;
-					}
-					
-					// レスポンスタイプを確認
-					const contentType = response.headers.get('content-type');
-					
-					if (contentType && contentType.includes('application/json')) {
-						// JSONレスポンスの場合
-						const responseData = await response.json();
-						if (responseData.contents) {
-							// allorigins形式のレスポンス
-							htmlContent = responseData.contents;
-						}
-					} else {
-						// テキスト/HTMLレスポンスの場合
-						htmlContent = await response.text();
-					}
-					
-					// 成功したらループを抜ける
-					if (htmlContent) break;
-					
-				} catch (err) {
-					proxyError = `Proxy error: ${err.message}`;
-					continue;
-				}
-			}
-			
-			if (!htmlContent) {
-				throw new Error(`Failed to fetch Amazon data: ${proxyError}`);
-			}
-			
-			// HTMLからメタデータを抽出
-			const titleMatch = htmlContent.match(/<span id="productTitle"[^>]*>([^<]+)<\/span>/);
-			const authorMatch = htmlContent.match(/<a class="[^"]*" href="[^"]*\/e\/[^"]*">([^<]+)<\/a>/) || 
-				htmlContent.match(/id="bylineInfo"[^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/);
-			
-			// 商品説明を取得 (複数のパターンに対応、より詳細なコンテンツを取得)
-			const summaryMatch = htmlContent.match(/<div id="bookDescription_feature_div"[^>]*>([\s\S]*?)<\/div>/) || 
-				htmlContent.match(/<div id="productDescription"[^>]*>([\s\S]*?)<\/div>/) ||
-				htmlContent.match(/<div class="a-expander-content[^"]*" id="[^"]*Description[^"]*"[^>]*>([\s\S]*?)<\/div>/) ||
-				htmlContent.match(/<noscript><div>([\s\S]*?)<\/div><\/noscript>/);
-			
-			// ジャンル情報とリンクを取得
-			let genre = 'Fiction'; // デフォルトのジャンル
-			let genreUrl = ''; // ジャンルのURL
-			
-			// パンくずリストからカテゴリ階層を取得
-			const breadcrumbsMatch = htmlContent.match(/id="wayfinding-breadcrumbs_feature_div"[^>]*>([\s\S]*?)<\/div>/);
-			if (breadcrumbsMatch) {
-				const breadcrumbs = breadcrumbsMatch[1];
-				// リンクを含むすべてのaタグを抽出
-				const categoryLinkElements = breadcrumbs.match(/<a[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/g);
-				
-				if (categoryLinkElements && categoryLinkElements.length > 0) {
-					// 最後のカテゴリを使用
-					const lastCategoryIndex = categoryLinkElements.length - 1;
-					const lastCategoryElement = categoryLinkElements[lastCategoryIndex];
-					
-					// カテゴリ名を抽出
-					const categoryTextMatch = lastCategoryElement.match(/>([^<]+)</);
-					if (categoryTextMatch) {
-						genre = categoryTextMatch[1].trim();
-					}
-					
-					// URLを抽出
-					const hrefMatch = lastCategoryElement.match(/href="([^"]*)"/);
-					if (hrefMatch) {
-						genreUrl = hrefMatch[1];
-						// 相対URLの場合は絶対URLに変換
-						if (genreUrl.startsWith('/')) {
-							const urlParts = amazonUrl.match(/^(https?:\/\/[^\/]+)\//);
-							if (urlParts) {
-								genreUrl = urlParts[1] + genreUrl;
-							}
-						}
-					}
-				}
-			}
-			
-			// 他の方法でもジャンル情報を探す
-			if (genre === 'Fiction' || genre === 'Kindle Store') {
-				const genreMatch = htmlContent.match(/<a class="a-link-normal a-color-tertiary"[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/);
-				if (genreMatch && genreMatch[2] && genreMatch[2].trim() !== 'Kindle Store') {
-					genre = genreMatch[2].trim();
-					if (genreMatch[1]) {
-						genreUrl = genreMatch[1];
-						// 相対URLの場合は絶対URLに変換
-						if (genreUrl.startsWith('/')) {
-							const urlParts = amazonUrl.match(/^(https?:\/\/[^\/]+)\//);
-							if (urlParts) {
-								genreUrl = urlParts[1] + genreUrl;
-							}
-						}
-					}
-				}
-			}
-			
-			// データを整形して返す
-			return {
-				title: titleMatch ? titleMatch[1].trim() : 'Unknown Title',
-				author: authorMatch ? authorMatch[1].trim() : 'Unknown Author',
-				genre: genre,
-				genreUrl: genreUrl,
-				summary: summaryMatch ? this.cleanHtml(summaryMatch[1]).trim() : 'No summary available.',
-				amazonUrl: amazonUrl // Amazon URLを保存
-			};
-		} catch (error) {
-			console.error('Error fetching book information:', error);
-			throw new Error('Failed to fetch book information. Please check the URL and try again.');
-		}
-	}
-	
-	// HTMLタグを除去するヘルパーメソッド（改行を維持）
+	/**
+	 * HTMLタグを除去するヘルパーメソッド（改行を維持）
+	 */
 	private cleanHtml(html: string): string {
 		// <br>や</p>タグを改行に置換してから他のHTMLタグを削除
 		return html
@@ -485,7 +680,9 @@ Summary:`;
 			.trim();
 	}
 	
-	// Obsidianのタグやリンクに干渉する文字を除去し、Markdownリンクを作成
+	/**
+	 * Obsidianのタグやリンクに干渉する文字を除去し、Markdownリンクを作成
+	 */
 	private createMarkdownLink(title: string, url: string): string {
 		// Obsidianのタグやリンクに使われる特殊文字を除去
 		const cleanTitle = title.replace(/[#\[\]|]/g, '').trim();
@@ -493,17 +690,16 @@ Summary:`;
 		return `[${cleanTitle}](${url})`;
 	}
 	
-	// カーソル位置のURLを取得するヘルパーメソッド
+	/**
+	 * カーソル位置のURLを取得するヘルパーメソッド
+	 */
 	private getUrlUnderCursor(editor: Editor): string | null {
 		const cursorPos = editor.getCursor();
 		const line = editor.getLine(cursorPos.line);
 		
-		// URLの正規表現パターン
-		const urlPattern = /(https?:\/\/[^\s()<>]+(?:\([\w\d]+\)|([^!\s()<>.,;:'"[\]{}]|\/)))/g;
-		
 		// 現在の行でURLを検索
 		let match;
-		while ((match = urlPattern.exec(line)) !== null) {
+		while ((match = URL_PATTERN.exec(line)) !== null) {
 			const start = match.index;
 			const end = start + match[0].length;
 			
@@ -513,8 +709,11 @@ Summary:`;
 			}
 		}
 		
+		// 正規表現のインデックスをリセット
+		URL_PATTERN.lastIndex = 0;
+		
 		// カーソルの直前または直後のURLも検索
-		const matches = line.match(urlPattern);
+		const matches = line.match(URL_PATTERN);
 		if (matches) {
 			// 最も近いURLを探す
 			let closestUrl = null;
@@ -543,22 +742,20 @@ Summary:`;
 	}
 }
 
-interface BookInfo {
-	title: string;
-	author: string;
-	genre: string;
-	genreUrl: string;
-	summary: string;
-	amazonUrl: string;
+/**
+ * URL入力モーダルの基本インターフェース
+ */
+interface UrlModal {
+	url: string;
+	startProcessing(): Promise<void>;
+	open(): void;
+	close(): void;
 }
 
-interface BlogInfo {
-	title: string;
-	summary: string;
-	blogUrl: string;
-}
-
-class BookUrlModal extends Modal {
+/**
+ * 書籍URL入力用のモーダル
+ */
+class BookUrlModal extends Modal implements UrlModal {
 	plugin: BookCardCreator;
 	url: string = '';
 	loadingContainer: HTMLElement;
@@ -648,7 +845,7 @@ class BookUrlModal extends Modal {
 			// エラー時はローディングを非表示にしてボタンを再表示
 			this.loadingContainer.style.display = 'none';
 			this.buttonContainer.style.display = 'flex';
-			new Notice(`Error: ${error}`);
+			new Notice(`Error: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
@@ -658,6 +855,9 @@ class BookUrlModal extends Modal {
 	}
 }
 
+/**
+ * 設定タブの実装
+ */
 class BookCardCreatorSettingTab extends PluginSettingTab {
 	plugin: BookCardCreator;
 
@@ -905,8 +1105,10 @@ class FileSelectorModal extends Modal {
 	}
 }
 
-// ブログURL入力用のモーダル
-class TechBlogUrlModal extends Modal {
+/**
+ * ブログURL入力用のモーダル
+ */
+class TechBlogUrlModal extends Modal implements UrlModal {
 	plugin: BookCardCreator;
 	url: string = '';
 	loadingContainer: HTMLElement;
@@ -952,14 +1154,7 @@ class TechBlogUrlModal extends Modal {
 		// 選択されているモデルの情報を表示
 		const modelInfo = contentEl.createDiv();
 		modelInfo.style.marginBottom = '1em';
-		let modelName = 'Unknown';
-		if (this.plugin.settings.llmModel === 'claude-3-haiku-20240307') {
-			modelName = 'Claude 3 Haiku (Fast)';
-		} else if (this.plugin.settings.llmModel === 'claude-3-sonnet-20240229') {
-			modelName = 'Claude 3 Sonnet (Balanced)';
-		} else if (this.plugin.settings.llmModel === 'claude-3-opus-20240229') {
-			modelName = 'Claude 3 Opus (Powerful)';
-		}
+		let modelName = this.getModelDisplayName(this.plugin.settings.llmModel);
 		modelInfo.createEl('p', { text: `Selected model: ${modelName}` });
 
 		// ローディングインジケータ（最初は非表示）
@@ -986,6 +1181,17 @@ class TechBlogUrlModal extends Modal {
 
 		// 入力フィールドにフォーカス
 		this.urlInput.focus();
+	}
+	
+	// モデル名の表示用文字列を取得
+	private getModelDisplayName(modelId: string): string {
+		const modelMap: Record<string, string> = {
+			'claude-3-haiku-20240307': 'Claude 3 Haiku (Fast)',
+			'claude-3-sonnet-20240229': 'Claude 3 Sonnet (Balanced)',
+			'claude-3-opus-20240229': 'Claude 3 Opus (Powerful)'
+		};
+		
+		return modelMap[modelId] || 'Unknown';
 	}
 
 	// URLからカード作成処理を開始
@@ -1017,7 +1223,7 @@ class TechBlogUrlModal extends Modal {
 			// エラー時はローディングを非表示にしてボタンを再表示
 			this.loadingContainer.style.display = 'none';
 			this.buttonContainer.style.display = 'flex';
-			new Notice(`Error: ${error}`);
+			new Notice(`Error: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
@@ -1027,7 +1233,9 @@ class TechBlogUrlModal extends Modal {
 	}
 }
 
-// フォルダ選択用のモーダル
+/**
+ * フォルダ選択用のモーダル
+ */
 class FolderSelectorModal extends Modal {
 	onSelect: (folder: TFolder) => void;
 
