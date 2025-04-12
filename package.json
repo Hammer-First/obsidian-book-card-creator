@@ -1,6 +1,6 @@
 {
   "name": "obsidian-book-card-creator",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Amazonの本のURLから情報を取得してノートを作成するプラグイン",
   "main": "main.js",
   "type": "module",

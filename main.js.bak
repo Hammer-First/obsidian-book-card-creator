@@ -53,7 +53,7 @@ const URL_PATTERN = /(https?:\/\/[^\s()<>]+(?:\([\w\d]+\)|([^!\s()<>.,;:'"[\]{}]
 class BookCardCreator extends obsidian.Plugin {
     onload() {
         return __awaiter(this, void 0, void 0, function* () {
-            console.log('Loading Book Card Creator plugin v1.3.3');
+            console.log('Loading Book Card Creator plugin v1.3.1');
             yield this.loadSettings();
             // スタイルシートを読み込む
             this.loadStyles();
