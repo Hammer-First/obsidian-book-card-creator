@@ -293,7 +293,7 @@ export default class BookCardCreator extends Plugin {
 		
 		// 基本情報を置換
 		result = result.replace(/{{book-creator:title}}/g, book.title);
-		result = result.replace(/{{book-creator:author}}/g, book.author);
+		result = result.replace(/{{book-creator:author}}/g, this.createMarkdownLink(book.author, `${book.author}`));
 		result = result.replace(/{{book-creator:genre}}/g, book.genre);
 		result = result.replace(/{{book-creator:summary}}/g, book.summary);
 		
