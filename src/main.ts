@@ -517,6 +517,9 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+		
+		// プラグイン固有のクラスを追加
+		containerEl.addClass('book-card-creator');
 
 		containerEl.createEl('h2', { text: 'Book Card Creator Settings' });
 
@@ -525,9 +528,6 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 		this.renderTechBlogSection(containerEl);
 		this.renderApiSection(containerEl);
 		this.renderTemplateVariables(containerEl);
-		
-		// CSSクラスを適用するための追加処理は不要。
-		// 'settings-section'クラスは各renderセクションですでに追加されている
 	}
 
 	// Amazon Book Cardsの設定セクション

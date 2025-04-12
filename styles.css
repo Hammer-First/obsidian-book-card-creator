@@ -19,15 +19,17 @@
 }
 
 /* Settings Sections */
-.settings-section {
+.book-card-creator .settings-section {
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
   padding: 10px 20px;
   margin-bottom: 20px;
+  background-color: var(--background-secondary);
 }
 
-.settings-section h3 {
+.book-card-creator .settings-section h3 {
   margin-top: 0.5em;
   padding-bottom: 0.5em;
   border-bottom: 1px solid var(--background-modifier-border);
+  color: var(--text-accent);
 }
