@@ -443,6 +443,8 @@ interface BlogInfo {
 class BookUrlModal extends Modal {
 	plugin: BookCardCreator;
 	url: string = '';
+	loadingContainer: HTMLElement;
+	buttonContainer: HTMLElement;
 
 	constructor(app: App, plugin: BookCardCreator) {
 		super(app);
@@ -468,18 +470,24 @@ class BookUrlModal extends Modal {
 			this.url = (e.target as HTMLInputElement).value;
 		});
 
+		// ローディングインジケータ（最初は非表示）
+		this.loadingContainer = contentEl.createDiv({ cls: 'loading-container' });
+		this.loadingContainer.style.display = 'none';
+		const spinner = this.loadingContainer.createDiv({ cls: 'loading-spinner' });
+		this.loadingContainer.createDiv({ cls: 'loading-text', text: 'Fetching book information...' });
+
 		// ボタンコンテナ
-		const buttonContainer = contentEl.createDiv();
-		buttonContainer.style.display = 'flex';
-		buttonContainer.style.justifyContent = 'flex-end';
-		buttonContainer.style.gap = '0.5em';
+		this.buttonContainer = contentEl.createDiv();
+		this.buttonContainer.style.display = 'flex';
+		this.buttonContainer.style.justifyContent = 'flex-end';
+		this.buttonContainer.style.gap = '0.5em';
 
 		// キャンセルボタン
-		const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
+		const cancelButton = this.buttonContainer.createEl('button', { text: 'Cancel' });
 		cancelButton.addEventListener('click', () => this.close());
 
 		// 作成ボタン
-		const createButton = buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
+		const createButton = this.buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
 		createButton.addEventListener('click', async () => {
 			if (!this.url) {
 				new Notice('Please enter a valid Amazon URL');
@@ -487,11 +495,27 @@ class BookUrlModal extends Modal {
 			}
 
 			try {
+				// ローディングインジケータを表示し、ボタンを非表示
+				this.loadingContainer.style.display = 'flex';
+				this.buttonContainer.style.display = 'none';
+				
+				// Notice表示も併用
 				new Notice('Fetching book information...');
+				
 				const bookInfo = await this.plugin.fetchBookInfo(this.url);
+				
+				// 生成中のメッセージに更新
+				const loadingText = this.loadingContainer.querySelector('.loading-text') as HTMLElement;
+				if (loadingText) {
+					loadingText.innerText = 'Creating book card...';
+				}
+				
 				await this.plugin.createNoteFromTemplate(bookInfo);
 				this.close();
 			} catch (error) {
+				// エラー時はローディングを非表示にしてボタンを再表示
+				this.loadingContainer.style.display = 'none';
+				this.buttonContainer.style.display = 'flex';
 				new Notice(`Error: ${error}`);
 			}
 		});
@@ -756,6 +780,8 @@ class FileSelectorModal extends Modal {
 class TechBlogUrlModal extends Modal {
 	plugin: BookCardCreator;
 	url: string = '';
+	loadingContainer: HTMLElement;
+	buttonContainer: HTMLElement;
 
 	constructor(app: App, plugin: BookCardCreator) {
 		super(app);
@@ -802,18 +828,24 @@ class TechBlogUrlModal extends Modal {
 		}
 		modelInfo.createEl('p', { text: `Selected model: ${modelName}` });
 
+		// ローディングインジケータ（最初は非表示）
+		this.loadingContainer = contentEl.createDiv({ cls: 'loading-container' });
+		this.loadingContainer.style.display = 'none';
+		const spinner = this.loadingContainer.createDiv({ cls: 'loading-spinner' });
+		this.loadingContainer.createDiv({ cls: 'loading-text', text: 'Fetching blog information...' });
+
 		// ボタンコンテナ
-		const buttonContainer = contentEl.createDiv();
-		buttonContainer.style.display = 'flex';
-		buttonContainer.style.justifyContent = 'flex-end';
-		buttonContainer.style.gap = '0.5em';
+		this.buttonContainer = contentEl.createDiv();
+		this.buttonContainer.style.display = 'flex';
+		this.buttonContainer.style.justifyContent = 'flex-end';
+		this.buttonContainer.style.gap = '0.5em';
 
 		// キャンセルボタン
-		const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
+		const cancelButton = this.buttonContainer.createEl('button', { text: 'Cancel' });
 		cancelButton.addEventListener('click', () => this.close());
 
 		// 作成ボタン
-		const createButton = buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
+		const createButton = this.buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
 		createButton.addEventListener('click', async () => {
 			if (!this.url) {
 				new Notice('Please enter a valid tech blog URL');
@@ -821,11 +853,27 @@ class TechBlogUrlModal extends Modal {
 			}
 
 			try {
+				// ローディングインジケータを表示し、ボタンを非表示
+				this.loadingContainer.style.display = 'flex';
+				this.buttonContainer.style.display = 'none';
+				
+				// Notice表示も併用
 				new Notice('Fetching blog information...');
+				
 				const blogInfo = await this.plugin.fetchBlogInfo(this.url);
+				
+				// 生成中のメッセージに更新
+				const loadingText = this.loadingContainer.querySelector('.loading-text') as HTMLElement;
+				if (loadingText) {
+					loadingText.innerText = 'Creating blog card...';
+				}
+				
 				await this.plugin.createNoteFromTemplate(blogInfo);
 				this.close();
 			} catch (error) {
+				// エラー時はローディングを非表示にしてボタンを再表示
+				this.loadingContainer.style.display = 'none';
+				this.buttonContainer.style.display = 'flex';
 				new Notice(`Error: ${error}`);
 			}
 		});
