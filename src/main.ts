@@ -444,7 +444,7 @@ export default class BookCardCreator extends Plugin {
 			const categoryLinkElements = breadcrumbs.match(/<a[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/g);
 			
 			if (categoryLinkElements && categoryLinkElements.length > 0) {
-				// 最後のカテゴリを使用
+				// 最後のカテゴリを使用（最も詳細なカテゴリ）
 				const lastCategoryIndex = categoryLinkElements.length - 1;
 				const lastCategoryElement = categoryLinkElements[lastCategoryIndex];
 				
@@ -459,6 +459,14 @@ export default class BookCardCreator extends Plugin {
 				if (hrefMatch) {
 					genreUrl = hrefMatch[1];
 					genreUrl = this.normalizeUrl(genreUrl, baseUrl);
+				}
+				
+				// パンくずリストの例: 本›コンピュータ・IT›プログラミング›ソフトウェア開発・言語
+				// 最後のカテゴリ（ソフトウェア開発・言語）が最も具体的なジャンル
+				// そのジャンルページへの直接リンクを生成
+				if (genre && !genreUrl) {
+					// URLが取得できない場合は検索URLを生成
+					genreUrl = `https://www.amazon.co.jp/s?k=${encodeURIComponent(genre)}&i=stripbooks`;
 				}
 			}
 		}
@@ -682,11 +690,20 @@ Summary:`;
 	
 	/**
 	 * Obsidianのタグやリンクに干渉する文字を除去し、Markdownリンクを作成
+	 * 著者名の場合はAmazonへのリンクとして作成
 	 */
 	private createMarkdownLink(title: string, url: string): string {
 		// Obsidianのタグやリンクに使われる特殊文字を除去
 		const cleanTitle = title.replace(/[#\[\]|]/g, '').trim();
-		// Markdown形式のリンクを作成
+		
+		// 著者のリンクの場合（URLが著者名と同じ場合）
+		if (title === url) {
+			// Amazonの著者ページのURLを生成
+			const amazonAuthorSearch = `https://www.amazon.co.jp/s?k=${encodeURIComponent(cleanTitle)}`;
+			return `[${cleanTitle}](${amazonAuthorSearch})`;
+		}
+		
+		// 通常のMarkdown形式のリンクを作成
 		return `[${cleanTitle}](${url})`;
 	}
 	
