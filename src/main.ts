@@ -147,6 +147,12 @@ export default class BookCardCreator extends Plugin {
 			newContent = newContent.replace(/{{book-creator:summary}}/g, book.summary);
 			// Amazon URLをMarkdownリンクとして挿入
 			newContent = newContent.replace(/{{book-creator:amazon-link}}/g, this.createMarkdownLink(book.title, book.amazonUrl));
+			// ジャンルURLのリンクも挿入（ジャンルURLがある場合のみ）
+			if (book.genreUrl) {
+				newContent = newContent.replace(/{{book-creator:genre-link}}/g, this.createMarkdownLink(book.genre, book.genreUrl));
+			} else {
+				newContent = newContent.replace(/{{book-creator:genre-link}}/g, book.genre);
+			}
 		} else if ('blogUrl' in bookInfo) {
 			// BlogInfoの場合
 			const blog = bookInfo as BlogInfo;
@@ -398,32 +404,58 @@ Summary:`;
 				htmlContent.match(/<div class="a-expander-content[^"]*" id="[^"]*Description[^"]*"[^>]*>([\s\S]*?)<\/div>/) ||
 				htmlContent.match(/<noscript><div>([\s\S]*?)<\/div><\/noscript>/);
 			
-			// ジャンル情報を取得（カテゴリ階層から詳細なジャンルを抽出）
+			// ジャンル情報とリンクを取得
 			let genre = 'Fiction'; // デフォルトのジャンル
+			let genreUrl = ''; // ジャンルのURL
 			
 			// パンくずリストからカテゴリ階層を取得
 			const breadcrumbsMatch = htmlContent.match(/id="wayfinding-breadcrumbs_feature_div"[^>]*>([\s\S]*?)<\/div>/);
 			if (breadcrumbsMatch) {
 				const breadcrumbs = breadcrumbsMatch[1];
-				// すべてのリンクテキストを抽出
-				const categoryLinks = breadcrumbs.match(/<a[^>]*>([^<]+)<\/a>/g);
+				// リンクを含むすべてのaタグを抽出
+				const categoryLinkElements = breadcrumbs.match(/<a[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/g);
 				
-				if (categoryLinks && categoryLinks.length > 0) {
-					// 最も具体的なカテゴリを取得するために、最後から2番目のカテゴリを使用
-					// (最後はよく「Kindle Store」になるため)
-					const targetIndex = Math.max(0, categoryLinks.length - 2);
-					const targetCategory = categoryLinks[targetIndex].match(/<a[^>]*>([^<]+)<\/a>/);
-					if (targetCategory) {
-						genre = targetCategory[1].trim();
+				if (categoryLinkElements && categoryLinkElements.length > 0) {
+					// 最後のカテゴリを使用
+					const lastCategoryIndex = categoryLinkElements.length - 1;
+					const lastCategoryElement = categoryLinkElements[lastCategoryIndex];
+					
+					// カテゴリ名を抽出
+					const categoryTextMatch = lastCategoryElement.match(/>([^<]+)</);
+					if (categoryTextMatch) {
+						genre = categoryTextMatch[1].trim();
+					}
+					
+					// URLを抽出
+					const hrefMatch = lastCategoryElement.match(/href="([^"]*)"/);
+					if (hrefMatch) {
+						genreUrl = hrefMatch[1];
+						// 相対URLの場合は絶対URLに変換
+						if (genreUrl.startsWith('/')) {
+							const urlParts = amazonUrl.match(/^(https?:\/\/[^\/]+)\//);
+							if (urlParts) {
+								genreUrl = urlParts[1] + genreUrl;
+							}
+						}
 					}
 				}
 			}
 			
 			// 他の方法でもジャンル情報を探す
 			if (genre === 'Fiction' || genre === 'Kindle Store') {
-				const genreMatch = htmlContent.match(/<a class="a-link-normal a-color-tertiary"[^>]*>([^<]+)<\/a>/);
-				if (genreMatch && genreMatch[1].trim() !== 'Kindle Store') {
-					genre = genreMatch[1].trim();
+				const genreMatch = htmlContent.match(/<a class="a-link-normal a-color-tertiary"[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>/);
+				if (genreMatch && genreMatch[2] && genreMatch[2].trim() !== 'Kindle Store') {
+					genre = genreMatch[2].trim();
+					if (genreMatch[1]) {
+						genreUrl = genreMatch[1];
+						// 相対URLの場合は絶対URLに変換
+						if (genreUrl.startsWith('/')) {
+							const urlParts = amazonUrl.match(/^(https?:\/\/[^\/]+)\//);
+							if (urlParts) {
+								genreUrl = urlParts[1] + genreUrl;
+							}
+						}
+					}
 				}
 			}
 			
@@ -432,6 +464,7 @@ Summary:`;
 				title: titleMatch ? titleMatch[1].trim() : 'Unknown Title',
 				author: authorMatch ? authorMatch[1].trim() : 'Unknown Author',
 				genre: genre,
+				genreUrl: genreUrl,
 				summary: summaryMatch ? this.cleanHtml(summaryMatch[1]).trim() : 'No summary available.',
 				amazonUrl: amazonUrl // Amazon URLを保存
 			};
@@ -514,6 +547,7 @@ interface BookInfo {
 	title: string;
 	author: string;
 	genre: string;
+	genreUrl: string;
 	summary: string;
 	amazonUrl: string;
 }
@@ -811,6 +845,7 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 				<li><code>{{book-creator:title}}</code> - Book title</li>
 				<li><code>{{book-creator:author}}</code> - Book author</li>
 				<li><code>{{book-creator:genre}}</code> - Book genre</li>
+				<li><code>{{book-creator:genre-link}}</code> - Markdown link to genre page</li>
 				<li><code>{{book-creator:summary}}</code> - Book summary</li>
 				<li><code>{{book-creator:amazon-link}}</code> - Markdown link to Amazon page</li>
 			</ul>
