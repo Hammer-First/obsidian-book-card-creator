@@ -24,6 +24,9 @@ export default class BookCardCreator extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
+		// スタイルシートを読み込む
+		this.loadStyles();
+
 		// コマンドパレットにコマンドを追加
 		this.addCommand({
 			id: 'create-book-card',
@@ -44,6 +47,13 @@ export default class BookCardCreator extends Plugin {
 
 		// 設定タブを追加
 		this.addSettingTab(new BookCardCreatorSettingTab(this.app, this));
+	}
+	
+	// プラグインのスタイルシートを読み込む
+	loadStyles() {
+		// Obsidianのプラグインでスタイルシートを読み込む正しい方法
+		// プラグインのマニフェストで指定されたstyles.cssが自動的に読み込まれる
+		// このメソッドは将来の拡張のために残しておく
 	}
 
 	onunload() {
@@ -515,6 +525,9 @@ class BookCardCreatorSettingTab extends PluginSettingTab {
 		this.renderTechBlogSection(containerEl);
 		this.renderApiSection(containerEl);
 		this.renderTemplateVariables(containerEl);
+		
+		// CSSクラスを適用するための追加処理は不要。
+		// 'settings-section'クラスは各renderセクションですでに追加されている
 	}
 
 	// Amazon Book Cardsの設定セクション
