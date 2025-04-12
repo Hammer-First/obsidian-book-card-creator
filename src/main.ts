@@ -45,6 +45,41 @@ export default class BookCardCreator extends Plugin {
 			}
 		});
 
+		// カーソル下のURLからカードを作成するコマンドを追加
+		this.addCommand({
+			id: 'create-card-from-cursor',
+			name: 'Create Card from URL under cursor',
+			editorCallback: async (editor: Editor, view: MarkdownView) => {
+				// カーソル位置のURLを取得
+				const url = this.getUrlUnderCursor(editor);
+				if (!url) {
+					new Notice('No URL found under cursor');
+					return;
+				}
+
+				// URLがAmazonのものかどうかを判定
+				if (url.includes('amazon')) {
+					// Amazonの場合は前入力済みのモーダルを表示
+					const modal = new BookUrlModal(this.app, this);
+					modal.url = url;
+					modal.open();
+					// URLが入力済みなので自動的に処理を開始
+					setTimeout(() => {
+						modal.startProcessing();
+					}, 100); // 少し遅延させてモーダルが完全に表示された後に処理を開始
+				} else {
+					// ブログの場合も前入力済みのモーダルを表示
+					const modal = new TechBlogUrlModal(this.app, this);
+					modal.url = url;
+					modal.open();
+					// URLが入力済みなので自動的に処理を開始
+					setTimeout(() => {
+						modal.startProcessing();
+					}, 100); // 少し遅延させてモーダルが完全に表示された後に処理を開始
+				}
+			}
+		});
+
 		// 設定タブを追加
 		this.addSettingTab(new BookCardCreatorSettingTab(this.app, this));
 	}
@@ -424,6 +459,55 @@ Summary:`;
 		// Markdown形式のリンクを作成
 		return `[${cleanTitle}](${url})`;
 	}
+	
+	// カーソル位置のURLを取得するヘルパーメソッド
+	private getUrlUnderCursor(editor: Editor): string | null {
+		const cursorPos = editor.getCursor();
+		const line = editor.getLine(cursorPos.line);
+		
+		// URLの正規表現パターン
+		const urlPattern = /(https?:\/\/[^\s()<>]+(?:\([\w\d]+\)|([^!\s()<>.,;:'"[\]{}]|\/)))/g;
+		
+		// 現在の行でURLを検索
+		let match;
+		while ((match = urlPattern.exec(line)) !== null) {
+			const start = match.index;
+			const end = start + match[0].length;
+			
+			// カーソルがURLの範囲内にある場合
+			if (cursorPos.ch >= start && cursorPos.ch <= end) {
+				return match[0];
+			}
+		}
+		
+		// カーソルの直前または直後のURLも検索
+		const matches = line.match(urlPattern);
+		if (matches) {
+			// 最も近いURLを探す
+			let closestUrl = null;
+			let minDistance = Number.MAX_VALUE;
+			
+			for (const url of matches) {
+				const start = line.indexOf(url);
+				const end = start + url.length;
+				const distanceToStart = Math.abs(cursorPos.ch - start);
+				const distanceToEnd = Math.abs(cursorPos.ch - end);
+				const minDist = Math.min(distanceToStart, distanceToEnd);
+				
+				if (minDist < minDistance) {
+					minDistance = minDist;
+					closestUrl = url;
+				}
+			}
+			
+			// カーソルから10文字以内にURLがある場合は取得
+			if (minDistance <= 10) {
+				return closestUrl;
+			}
+		}
+		
+		return null;
+	}
 }
 
 interface BookInfo {
@@ -445,6 +529,7 @@ class BookUrlModal extends Modal {
 	url: string = '';
 	loadingContainer: HTMLElement;
 	buttonContainer: HTMLElement;
+	urlInput: HTMLInputElement;
 
 	constructor(app: App, plugin: BookCardCreator) {
 		super(app);
@@ -457,18 +542,22 @@ class BookUrlModal extends Modal {
 
 		// URL入力フィールド
 		const urlInputContainer = contentEl.createDiv();
-		const urlInput = urlInputContainer.createEl('input', {
+		this.urlInput = urlInputContainer.createEl('input', {
 			attr: {
 				type: 'text',
 				placeholder: 'https://www.amazon.com/...'
 			},
 			cls: 'book-url-input'
 		});
-		urlInput.style.width = '100%';
-		urlInput.style.marginBottom = '1em';
-		urlInput.addEventListener('input', (e) => {
+		this.urlInput.style.width = '100%';
+		this.urlInput.style.marginBottom = '1em';
+		this.urlInput.addEventListener('input', (e) => {
 			this.url = (e.target as HTMLInputElement).value;
 		});
+		// 事前に設定されたURLがある場合は表示
+		if (this.url) {
+			this.urlInput.value = this.url;
+		}
 
 		// ローディングインジケータ（最初は非表示）
 		this.loadingContainer = contentEl.createDiv({ cls: 'loading-container' });
@@ -489,39 +578,44 @@ class BookUrlModal extends Modal {
 		// 作成ボタン
 		const createButton = this.buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
 		createButton.addEventListener('click', async () => {
-			if (!this.url) {
-				new Notice('Please enter a valid Amazon URL');
-				return;
-			}
-
-			try {
-				// ローディングインジケータを表示し、ボタンを非表示
-				this.loadingContainer.style.display = 'flex';
-				this.buttonContainer.style.display = 'none';
-				
-				// Notice表示も併用
-				new Notice('Fetching book information...');
-				
-				const bookInfo = await this.plugin.fetchBookInfo(this.url);
-				
-				// 生成中のメッセージに更新
-				const loadingText = this.loadingContainer.querySelector('.loading-text') as HTMLElement;
-				if (loadingText) {
-					loadingText.innerText = 'Creating book card...';
-				}
-				
-				await this.plugin.createNoteFromTemplate(bookInfo);
-				this.close();
-			} catch (error) {
-				// エラー時はローディングを非表示にしてボタンを再表示
-				this.loadingContainer.style.display = 'none';
-				this.buttonContainer.style.display = 'flex';
-				new Notice(`Error: ${error}`);
-			}
+			this.startProcessing();
 		});
 
 		// 入力フィールドにフォーカス
-		urlInput.focus();
+		this.urlInput.focus();
+	}
+
+	// URLからカード作成処理を開始
+	async startProcessing() {
+		if (!this.url) {
+			new Notice('Please enter a valid Amazon URL');
+			return;
+		}
+
+		try {
+			// ローディングインジケータを表示し、ボタンを非表示
+			this.loadingContainer.style.display = 'flex';
+			this.buttonContainer.style.display = 'none';
+			
+			// Notice表示も併用
+			new Notice('Fetching book information...');
+			
+			const bookInfo = await this.plugin.fetchBookInfo(this.url);
+			
+			// 生成中のメッセージに更新
+			const loadingText = this.loadingContainer.querySelector('.loading-text') as HTMLElement;
+			if (loadingText) {
+				loadingText.innerText = 'Creating book card...';
+			}
+			
+			await this.plugin.createNoteFromTemplate(bookInfo);
+			this.close();
+		} catch (error) {
+			// エラー時はローディングを非表示にしてボタンを再表示
+			this.loadingContainer.style.display = 'none';
+			this.buttonContainer.style.display = 'flex';
+			new Notice(`Error: ${error}`);
+		}
 	}
 
 	onClose() {
@@ -776,12 +870,13 @@ class FileSelectorModal extends Modal {
 	}
 }
 
-// フォルダ選択用のモーダル
+// ブログURL入力用のモーダル
 class TechBlogUrlModal extends Modal {
 	plugin: BookCardCreator;
 	url: string = '';
 	loadingContainer: HTMLElement;
 	buttonContainer: HTMLElement;
+	urlInput: HTMLInputElement;
 
 	constructor(app: App, plugin: BookCardCreator) {
 		super(app);
@@ -794,18 +889,22 @@ class TechBlogUrlModal extends Modal {
 
 		// URL入力フィールド
 		const urlInputContainer = contentEl.createDiv();
-		const urlInput = urlInputContainer.createEl('input', {
+		this.urlInput = urlInputContainer.createEl('input', {
 			attr: {
 				type: 'text',
 				placeholder: 'https://blog.example.com/...'
 			},
 			cls: 'blog-url-input'
 		});
-		urlInput.style.width = '100%';
-		urlInput.style.marginBottom = '1em';
-		urlInput.addEventListener('input', (e) => {
+		this.urlInput.style.width = '100%';
+		this.urlInput.style.marginBottom = '1em';
+		this.urlInput.addEventListener('input', (e) => {
 			this.url = (e.target as HTMLInputElement).value;
 		});
+		// 事前に設定されたURLがある場合は表示
+		if (this.url) {
+			this.urlInput.value = this.url;
+		}
 
 		// APIキーの警告（設定されていない場合）
 		if (!this.plugin.settings.anthropicApiKey) {
@@ -847,39 +946,44 @@ class TechBlogUrlModal extends Modal {
 		// 作成ボタン
 		const createButton = this.buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
 		createButton.addEventListener('click', async () => {
-			if (!this.url) {
-				new Notice('Please enter a valid tech blog URL');
-				return;
-			}
-
-			try {
-				// ローディングインジケータを表示し、ボタンを非表示
-				this.loadingContainer.style.display = 'flex';
-				this.buttonContainer.style.display = 'none';
-				
-				// Notice表示も併用
-				new Notice('Fetching blog information...');
-				
-				const blogInfo = await this.plugin.fetchBlogInfo(this.url);
-				
-				// 生成中のメッセージに更新
-				const loadingText = this.loadingContainer.querySelector('.loading-text') as HTMLElement;
-				if (loadingText) {
-					loadingText.innerText = 'Creating blog card...';
-				}
-				
-				await this.plugin.createNoteFromTemplate(blogInfo);
-				this.close();
-			} catch (error) {
-				// エラー時はローディングを非表示にしてボタンを再表示
-				this.loadingContainer.style.display = 'none';
-				this.buttonContainer.style.display = 'flex';
-				new Notice(`Error: ${error}`);
-			}
+			this.startProcessing();
 		});
 
 		// 入力フィールドにフォーカス
-		urlInput.focus();
+		this.urlInput.focus();
+	}
+
+	// URLからカード作成処理を開始
+	async startProcessing() {
+		if (!this.url) {
+			new Notice('Please enter a valid tech blog URL');
+			return;
+		}
+
+		try {
+			// ローディングインジケータを表示し、ボタンを非表示
+			this.loadingContainer.style.display = 'flex';
+			this.buttonContainer.style.display = 'none';
+			
+			// Notice表示も併用
+			new Notice('Fetching blog information...');
+			
+			const blogInfo = await this.plugin.fetchBlogInfo(this.url);
+			
+			// 生成中のメッセージに更新
+			const loadingText = this.loadingContainer.querySelector('.loading-text') as HTMLElement;
+			if (loadingText) {
+				loadingText.innerText = 'Creating blog card...';
+			}
+			
+			await this.plugin.createNoteFromTemplate(blogInfo);
+			this.close();
+		} catch (error) {
+			// エラー時はローディングを非表示にしてボタンを再表示
+			this.loadingContainer.style.display = 'none';
+			this.buttonContainer.style.display = 'flex';
+			new Notice(`Error: ${error}`);
+		}
 	}
 
 	onClose() {
@@ -888,6 +992,7 @@ class TechBlogUrlModal extends Modal {
 	}
 }
 
+// フォルダ選択用のモーダル
 class FolderSelectorModal extends Modal {
 	onSelect: (folder: TFolder) => void;
 
